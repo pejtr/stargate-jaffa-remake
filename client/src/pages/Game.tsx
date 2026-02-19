@@ -1,15 +1,16 @@
 import { Button } from "@/components/ui/button";
-import { GameEngine } from "@/lib/gameEngine";
+import { ContraEngine } from "@/lib/contraEngine";
+import { DefenseEngine } from "@/lib/defenseEngine";
 import type { CharacterType } from "@/lib/gameAssets";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const engineRef = useRef<GameEngine | null>(null);
+  const contraEngineRef = useRef<ContraEngine | null>(null);
+  const defenseEngineRef = useRef<DefenseEngine | null>(null);
   const [, setLocation] = useLocation();
   const [gameStarted, setGameStarted] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
   const gameMode = sessionStorage.getItem('gameMode') || 'contra';
 
   useEffect(() => {
@@ -23,37 +24,24 @@ export default function Game() {
     // Get selected character
     const selectedChar = (sessionStorage.getItem('selectedCharacter') || 'oneill') as CharacterType;
 
-    // Initialize game engine
-    const engine = new GameEngine(canvas);
-    engine.addPlayer(selectedChar);
-    engineRef.current = engine;
+    if (gameMode === 'contra') {
+      // Initialize Contra engine
+      const engine = new ContraEngine(canvas);
+      engine.addPlayer(selectedChar);
+      contraEngineRef.current = engine;
+      engine.start();
+    } else {
+      // Initialize Defense engine
+      const engine = new DefenseEngine(canvas);
+      engine.addPlayer(selectedChar);
+      defenseEngineRef.current = engine;
+      engine.start();
+    }
 
-    // Spawn some test enemies
-    setTimeout(() => {
-      engine.spawnEnemy('jaffa');
-    }, 2000);
-
-    setTimeout(() => {
-      engine.spawnEnemy('elite');
-    }, 4000);
-
-    setTimeout(() => {
-      engine.spawnEnemy('kull');
-    }, 6000);
-
-    // Start game loop
-    engine.start();
     setGameStarted(true);
 
-    // Handle shoot on spacebar
+    // Handle ESC to exit
     const handleKeyPress = (e: KeyboardEvent) => {
-      if (e.key === 'j' || e.key === 'J') {
-        engine.playerShoot();
-      }
-      if (e.key === 'p' || e.key === 'P') {
-        engine.togglePause();
-        setIsPaused((prev) => !prev);
-      }
       if (e.key === 'Escape') {
         setLocation('/character-select');
       }
@@ -62,21 +50,21 @@ export default function Game() {
     window.addEventListener('keypress', handleKeyPress);
 
     return () => {
-      engine.stop();
+      contraEngineRef.current?.stop();
+      defenseEngineRef.current?.stop();
       window.removeEventListener('keypress', handleKeyPress);
     };
-  }, [setLocation]);
+  }, [setLocation, gameMode]);
 
   const handleRestart = () => {
-    if (engineRef.current) {
-      engineRef.current.reset();
+    if (gameMode === 'contra' && contraEngineRef.current) {
+      contraEngineRef.current.reset();
       const selectedChar = (sessionStorage.getItem('selectedCharacter') || 'oneill') as CharacterType;
-      engineRef.current.addPlayer(selectedChar);
-      
-      // Spawn enemies again
-      setTimeout(() => engineRef.current?.spawnEnemy('jaffa'), 2000);
-      setTimeout(() => engineRef.current?.spawnEnemy('elite'), 4000);
-      setTimeout(() => engineRef.current?.spawnEnemy('kull'), 6000);
+      contraEngineRef.current.addPlayer(selectedChar);
+    } else if (gameMode === 'defense' && defenseEngineRef.current) {
+      defenseEngineRef.current.reset();
+      const selectedChar = (sessionStorage.getItem('selectedCharacter') || 'oneill') as CharacterType;
+      defenseEngineRef.current.addPlayer(selectedChar);
     }
   };
 
@@ -96,11 +84,20 @@ export default function Game() {
           STARGATE: ZASTŘEL SI SVÉHO JAFFU 2
         </h1>
         <div className="text-gray-300 space-x-4 text-sm">
-          <span>WASD/Arrows: Move</span>
-          <span>W/↑/Space: Jump</span>
-          <span>J: Shoot</span>
-          <span>P: Pause</span>
-          <span>ESC: Exit</span>
+          {gameMode === 'contra' ? (
+            <>
+              <span>A/D or ←/→: Move</span>
+              <span>W or ↑: Jump</span>
+              <span>CTRL: Shoot</span>
+              <span>ESC: Exit</span>
+            </>
+          ) : (
+            <>
+              <span>Mouse: Aim</span>
+              <span>Click or CTRL: Shoot</span>
+              <span>ESC: Exit</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -108,17 +105,8 @@ export default function Game() {
         <canvas
           ref={canvasRef}
           className="border-4 border-blue-500 rounded-lg shadow-2xl shadow-blue-500/50"
-          style={{ imageRendering: 'pixelated' }}
+          style={{ imageRendering: 'pixelated', cursor: gameMode === 'defense' ? 'crosshair' : 'default' }}
         />
-        
-        {isPaused && (
-          <div className="absolute inset-0 bg-black/70 flex items-center justify-center rounded-lg">
-            <div className="text-center">
-              <h2 className="text-6xl font-bold text-white pixel-font mb-4">PAUSED</h2>
-              <p className="text-xl text-gray-300">Press P to continue</p>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="mt-6 flex gap-4">
@@ -134,6 +122,13 @@ export default function Game() {
           className="border-gray-500 text-gray-300 hover:bg-gray-800"
         >
           Change Character
+        </Button>
+        <Button
+          onClick={() => setLocation('/mode-select')}
+          variant="outline"
+          className="border-gray-500 text-gray-300 hover:bg-gray-800"
+        >
+          Change Mode
         </Button>
         <Button
           onClick={() => setLocation('/')}
