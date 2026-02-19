@@ -1,18 +1,20 @@
 // Game asset URLs from CDN
 export const GAME_ASSETS = {
   sprites: {
-    tealc: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/nwtqUgJpvLYNpomf.png',
-    oneill: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/grEhcliXKFSodJDz.png',
-    carter: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/VjfzCJgUzLgCuiVR.png',
-    jackson: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/YwbbivLHytufZFpT.png',
-    jaffaEnemies: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/ocmEDBpBkqNmOYJF.png',
+    // Player sprites
+    tealc: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/xEfwstUmRUBTiMjX.png',
+    oneill: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/xUTwdEvXctLOgJEs.png',
+    carter: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/amHBvNKZnuzjvvTN.png',
+    jackson: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/fYKYOroVMjuRdUgi.png',
+    // Enemy sprites
+    jaffaEnemies: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/YVCEFgrmRmcLNvkm.png',
     replicators: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/FRjpFrogFcZeOxtP.png',
     oriSoldiers: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/UkTsBNtLAnqQJqrk.png',
     powerups: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/ktToxlSHwjXhTMwf.png',
   },
   backgrounds: {
-    level1Egypt: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/qjxwxyRxxOVyWNbS.png',
-    level2Goauld: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/qjxwxyRxxOVyWNbS.png', // TODO: Generate Goa'uld ship bg
+    level1Egypt: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/MPNoEgLVvATEwAgV.png',
+    level2Goauld: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/qjxwxyRxxOVyWNbS.png',
     level3Antarctica: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/ndVeouJBVVnhdVDf.png',
     ancientOutpost: 'https://files.manuscdn.com/user_upload_by_module/session_file/310419663032296198/LAzYxAosqtNDumAI.png',
   },

@@ -1,5 +1,6 @@
 import { GAME_ASSETS, CHARACTER_STATS, type CharacterType } from './gameAssets';
 import { playShoot, playHit, playExplosion, playPowerUp, playDamage, playJump, playBossSpawn, playBossDeath, playShieldActivate, playShieldDeactivate } from './audioEngine';
+import { spriteManager, SPRITE_SHEETS } from './spriteManager';
 
 // ─── Types ───────────────────────────────────────────────────────
 interface Vec2 { x: number; y: number }
@@ -883,19 +884,32 @@ export class ContraEngine {
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
 
-    // Sky
+    // Sky gradient based on level
+    const skyColors = [
+      { top: '#1a1a3e', mid: '#2a2050', bot: '#3a2a60' }, // Level 1: Egypt night
+      { top: '#0a0a1a', mid: '#1a1a2a', bot: '#2a2a3a' }, // Level 2: Ship
+      { top: '#4a5a6a', mid: '#6a7a8a', bot: '#8a9aaa' }, // Level 3: Antarctica
+    ][this.currentLevel - 1] || { top: '#050510', mid: '#0a0a2e', bot: '#1a1040' };
+
     const grad = ctx.createLinearGradient(0, 0, 0, this.H);
-    grad.addColorStop(0, '#050510');
-    grad.addColorStop(0.5, '#0a0a2e');
-    grad.addColorStop(1, '#1a1040');
+    grad.addColorStop(0, skyColors.top);
+    grad.addColorStop(0.5, skyColors.mid);
+    grad.addColorStop(1, skyColors.bot);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, this.W, this.H);
 
-    // Parallax background
+    // Parallax background layers
     if (this.bgLoaded && this.bgImage) {
-      ctx.globalAlpha = 0.3;
-      const bgX = -this.cameraX * 0.3;
-      ctx.drawImage(this.bgImage, bgX, 0, this.W * 1.5, this.H * 0.8);
+      // Far background layer (pyramids, mountains, etc.)
+      ctx.globalAlpha = 0.4;
+      const bgX1 = -this.cameraX * 0.2;
+      ctx.drawImage(this.bgImage, bgX1, 0, this.W * 2, this.H * 0.7);
+      
+      // Mid background layer
+      ctx.globalAlpha = 0.6;
+      const bgX2 = -this.cameraX * 0.4;
+      ctx.drawImage(this.bgImage, bgX2, this.H * 0.3, this.W * 1.5, this.H * 0.5);
+      
       ctx.globalAlpha = 1;
     }
 
@@ -968,75 +982,99 @@ export class ContraEngine {
   private drawPlayer(p: ContraPlayer): void {
     const ctx = this.ctx;
     
-    // Shield effect
-    if (p.shieldActive) {
-      ctx.globalAlpha = 0.3;
-      ctx.strokeStyle = COLORS.shield;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(p.pos.x + p.w / 2, p.pos.y + p.h / 2, p.w, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
     // Invincibility flash
     if (p.invTimer > 0 && Math.floor(p.invTimer * 10) % 2 === 0) return;
 
-    // Body
-    const colors = {
-      tealc: { body: '#8b7355', armor: '#997722' },
-      oneill: { body: '#4a4a4a', armor: '#2a2a2a' },
-      carter: { body: '#4a4a4a', armor: '#2a2a2a' },
-      jackson: { body: '#4a4a4a', armor: '#2a2a2a' },
-    }[p.character];
+    // Determine animation state
+    let animState: 'idle' | 'walk' | 'shoot' | 'jump' = 'idle';
+    if (!p.onGround) {
+      animState = 'jump';
+    } else if (p.shootCooldown > 0) {
+      animState = 'shoot';
+    } else if (Math.abs(p.vel.x) > 0.5) {
+      animState = 'walk';
+    }
 
-    ctx.fillStyle = colors.body;
-    ctx.fillRect(p.pos.x + 8, p.pos.y + 8, 8, 16);
+    // Get sprite animation
+    const charSprites = SPRITE_SHEETS.players[p.character];
+    const animation = charSprites[animState];
+    const frame = spriteManager.getAnimationFrame(animation, p.animTimer);
 
-    // Armor
-    ctx.fillStyle = colors.armor;
-    ctx.fillRect(p.pos.x + 6, p.pos.y + 8, 12, 4);
+    // Draw sprite
+    const spriteKey = p.character;
+    const renderWidth = p.w * 1.5;
+    const renderHeight = p.h * 1.5;
+    const renderX = p.pos.x - (renderWidth - p.w) / 2;
+    const renderY = p.pos.y - (renderHeight - p.h) / 2;
 
-    // Head
-    ctx.fillStyle = '#d4a574';
-    ctx.fillRect(p.pos.x + 8, p.pos.y, 8, 8);
+    spriteManager.drawSprite(
+      ctx,
+      spriteKey,
+      frame,
+      renderX,
+      renderY,
+      renderWidth,
+      renderHeight,
+      p.facing === -1
+    );
 
-    // Weapon indicator
-    const weaponColor = p.currentWeapon === 0 ? '#cccccc' : '#ffaa00';
-    ctx.fillStyle = weaponColor;
-    ctx.fillRect(p.pos.x + (p.facing === 1 ? 16 : 0), p.pos.y + 12, 8, 3);
+    // Shield effect overlay
+    if (p.shieldActive) {
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = '#00ffff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(p.pos.x + p.w / 2, p.pos.y + p.h / 2, p.w * 0.8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
   }
 
   private drawEnemy(e: Enemy): void {
     const ctx = this.ctx;
 
+    // Determine enemy sprite type
+    let enemySprite: 'jaffa' | 'elite' | 'kull' = 'jaffa';
+    if (e.type === 'elite') enemySprite = 'elite';
+    else if (e.type === 'kull') enemySprite = 'kull';
+
+    // Determine animation state
+    const animState = e.shootTimer < 0.5 ? 'shoot' : (Math.abs(e.vel.x) > 0.5 ? 'walk' : 'idle');
+
+    // Get sprite animation
+    const enemySprites = SPRITE_SHEETS.enemies[enemySprite];
+    const animation = enemySprites[animState];
+    const frame = spriteManager.getAnimationFrame(animation, e.animTimer || 0);
+
+    // Draw sprite
+    const renderWidth = e.w * 2;
+    const renderHeight = e.h * 2;
+    const renderX = e.pos.x - (renderWidth - e.w) / 2;
+    const renderY = e.pos.y - (renderHeight - e.h) / 2;
+
+    // Hit flash overlay
     if (e.hitFlash > 0) {
       ctx.globalAlpha = 0.5;
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(e.pos.x, e.pos.y, e.w, e.h);
-      ctx.globalAlpha = 1;
     }
 
-    const colors = {
-      jaffa: { body: COLORS.jaffa, armor: '#997722' },
-      elite: { body: COLORS.elite, armor: '#bb4411' },
-      kull: { body: COLORS.kull, armor: '#334455' },
-      replicator: { body: '#8899aa', armor: '#4466ff' },
-      ori: { body: '#ffffff', armor: '#ffd700' },
-    }[e.type];
+    spriteManager.drawSprite(
+      ctx,
+      'jaffaEnemies',
+      frame,
+      renderX,
+      renderY,
+      renderWidth,
+      renderHeight,
+      e.facing === -1
+    );
 
-    ctx.fillStyle = colors.body;
-    ctx.fillRect(e.pos.x + 8, e.pos.y + 8, 8, 16);
-    ctx.fillStyle = colors.armor;
-    ctx.fillRect(e.pos.x + 6, e.pos.y + 8, 12, 4);
-    ctx.fillStyle = '#bb9933';
-    ctx.fillRect(e.pos.x + 8, e.pos.y, 8, 8);
+    ctx.globalAlpha = 1;
 
     // Health bar
     if (e.hp < e.maxHp) {
-      ctx.fillStyle = COLORS.healthBg;
+      ctx.fillStyle = '#330000';
       ctx.fillRect(e.pos.x, e.pos.y - 8, e.w, 4);
-      ctx.fillStyle = COLORS.health;
+      ctx.fillStyle = '#ff0000';
       ctx.fillRect(e.pos.x, e.pos.y - 8, e.w * (e.hp / e.maxHp), 4);
     }
   }
