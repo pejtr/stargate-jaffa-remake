@@ -116,7 +116,7 @@ export class DefenseEngine {
     this.bgImage = new Image();
     this.bgImage.crossOrigin = 'anonymous';
     this.bgImage.onload = () => { this.bgLoaded = true; };
-    this.bgImage.src = GAME_ASSETS.backgrounds.level1;
+    this.bgImage.src = GAME_ASSETS.backgrounds.level1Egypt;
 
     // Load stargate
     this.stargateImage = new Image();

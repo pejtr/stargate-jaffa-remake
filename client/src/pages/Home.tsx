@@ -45,6 +45,7 @@ export default function Home() {
           <div className="text-gray-400 text-sm space-y-1">
             <p>🎮 2 Game Modes: Contra & Defense</p>
             <p>🔫 4 Playable Characters</p>
+            <p className="text-yellow-400 mt-4">Created by MenthoSoft</p>
             <p>👾 1-4 Players Co-op</p>
           </div>
         </div>

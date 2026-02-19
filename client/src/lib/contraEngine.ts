@@ -29,7 +29,7 @@ interface Enemy {
   pos: Vec2;
   vel: Vec2;
   w: number; h: number;
-  type: 'jaffa' | 'elite' | 'kull';
+  type: 'jaffa' | 'elite' | 'kull' | 'replicator' | 'ori';
   hp: number;
   maxHp: number;
   active: boolean;
@@ -66,6 +66,13 @@ interface Explosion {
   x: number; y: number;
   radius: number; maxRadius: number;
   life: number; maxLife: number;
+}
+
+interface PowerUp {
+  pos: Vec2;
+  type: 'health' | 'shield' | 'ammo' | 'rapidfire' | 'spread' | 'energy';
+  active: boolean;
+  bobTimer: number;
 }
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -145,6 +152,40 @@ const LEVEL_DATA = {
     ],
     bossX: 3300,
   },
+  3: {
+    length: 4000,
+    platforms: [
+      // Ground - ice platforms
+      { x: 0, y: 650, w: 4000, h: 70 },
+      // Antarctica - icy platforms
+      { x: 250, y: 550, w: 250, h: 20 },
+      { x: 600, y: 450, w: 200, h: 20 },
+      { x: 900, y: 400, w: 300, h: 20 },
+      { x: 1300, y: 350, w: 200, h: 20 },
+      { x: 1600, y: 450, w: 250, h: 20 },
+      { x: 1950, y: 500, w: 200, h: 20 },
+      { x: 2250, y: 400, w: 300, h: 20 },
+      { x: 2650, y: 350, w: 200, h: 20 },
+      { x: 2950, y: 500, w: 250, h: 20 },
+      { x: 3300, y: 450, w: 300, h: 20 },
+    ],
+    enemies: [
+      { x: 400, type: 'replicator' as const },
+      { x: 650, type: 'replicator' as const },
+      { x: 950, type: 'ori' as const },
+      { x: 1200, type: 'replicator' as const },
+      { x: 1450, type: 'ori' as const },
+      { x: 1700, type: 'replicator' as const },
+      { x: 2000, type: 'ori' as const },
+      { x: 2300, type: 'replicator' as const },
+      { x: 2550, type: 'ori' as const },
+      { x: 2800, type: 'replicator' as const },
+      { x: 3050, type: 'ori' as const },
+      { x: 3350, type: 'replicator' as const },
+      { x: 3600, type: 'ori' as const },
+    ],
+    bossX: 3800,
+  },
 };
 
 // ─── Engine ──────────────────────────────────────────────────────
@@ -160,6 +201,7 @@ export class ContraEngine {
   private platforms: Platform[] = [];
   private particles: Particle[] = [];
   private explosions: Explosion[] = [];
+  private powerups: PowerUp[] = [];
 
   private cameraX = 0;
   private score = 0;
@@ -193,7 +235,7 @@ export class ContraEngine {
     this.bgImage = new Image();
     this.bgImage.crossOrigin = 'anonymous';
     this.bgImage.onload = () => { this.bgLoaded = true; };
-    this.bgImage.src = GAME_ASSETS.backgrounds.level1;
+    this.bgImage.src = GAME_ASSETS.backgrounds.level1Egypt;
 
     this.loadLevel(1);
     this.setupInput();
@@ -301,7 +343,7 @@ export class ContraEngine {
 
   // ─── Update ──────────────────────────────────────────────────
   private update(dt: number): void {
-    const levelData = LEVEL_DATA[this.currentLevel as 1 | 2];
+    const levelData = LEVEL_DATA[this.currentLevel as 1 | 2 | 3];
 
     // Spawn enemies
     while (
@@ -363,16 +405,26 @@ export class ContraEngine {
       return e.life > 0;
     });
 
+    // Power-ups
+    this.updatePowerUps(dt);
+
     // Collisions
     this.checkCollisions();
 
     // Check victory
-    if (this.boss && !this.boss.active && this.currentLevel === 2) {
+    if (this.boss && !this.boss.active && this.currentLevel === 3) {
       this.victory = true;
       this.gameOver = true;
     } else if (this.boss && !this.boss.active && this.currentLevel === 1) {
       // Load level 2
       this.loadLevel(2);
+      this.players.forEach(p => {
+        p.pos.x = 100;
+        p.pos.y = 500;
+      });
+    } else if (this.boss && !this.boss.active && this.currentLevel === 2) {
+      // Load level 3
+      this.loadLevel(3);
       this.players.forEach(p => {
         p.pos.x = 100;
         p.pos.y = 500;
@@ -438,7 +490,7 @@ export class ContraEngine {
     });
 
     // Screen bounds
-    const levelData = LEVEL_DATA[this.currentLevel as 1 | 2];
+    const levelData = LEVEL_DATA[this.currentLevel as 1 | 2 | 3];
     p.pos.x = Math.max(this.cameraX, Math.min(levelData.length - p.w, p.pos.x));
     if (p.pos.y > this.H + 50) {
       p.lives--;
@@ -532,11 +584,13 @@ export class ContraEngine {
     }
   }
 
-  private spawnEnemy(x: number, type: 'jaffa' | 'elite' | 'kull'): void {
+  private spawnEnemy(x: number, type: 'jaffa' | 'elite' | 'kull' | 'replicator' | 'ori'): void {
     const data = {
       jaffa: { hp: 30, pts: 100 },
       elite: { hp: 50, pts: 250 },
       kull: { hp: 100, pts: 500 },
+      replicator: { hp: 40, pts: 300 },
+      ori: { hp: 70, pts: 400 },
     }[type];
 
     this.enemies.push({
@@ -557,7 +611,7 @@ export class ContraEngine {
   }
 
   private spawnBoss(): void {
-    const levelData = LEVEL_DATA[this.currentLevel as 1 | 2];
+    const levelData = LEVEL_DATA[this.currentLevel as 1 | 2 | 3];
     this.boss = {
       pos: { x: levelData.bossX, y: 550 },
       vel: { x: 0, y: 0 },
@@ -671,6 +725,10 @@ export class ContraEngine {
             e.active = false;
             this.score += e.points;
             this.createExplosion(e.pos.x, e.pos.y, 45);
+            // 20% chance to drop power-up
+            if (Math.random() < 0.2) {
+              this.spawnPowerUp(e.pos.x + e.w / 2, e.pos.y + e.h / 2);
+            }
           }
         }
       });
@@ -828,6 +886,9 @@ export class ContraEngine {
     });
     ctx.globalAlpha = 1;
 
+    // Power-ups
+    this.renderPowerUps();
+
     ctx.restore();
 
     // HUD
@@ -894,6 +955,8 @@ export class ContraEngine {
       jaffa: { body: COLORS.jaffa, armor: '#997722' },
       elite: { body: COLORS.elite, armor: '#bb4411' },
       kull: { body: COLORS.kull, armor: '#334455' },
+      replicator: { body: '#8899aa', armor: '#4466ff' },
+      ori: { body: '#ffffff', armor: '#ffd700' },
     }[e.type];
 
     ctx.fillStyle = colors.body;
@@ -963,7 +1026,7 @@ export class ContraEngine {
     ctx.fillText('LEVEL', 280, 22);
     ctx.fillStyle = COLORS.text;
     ctx.font = 'bold 18px "Press Start 2P", monospace';
-    ctx.fillText(`${this.currentLevel}/2`, 280, 46);
+    ctx.fillText(`${this.currentLevel}/3`, 280, 46);
 
     // Players
     this.players.forEach((p, i) => {
@@ -1037,5 +1100,73 @@ export class ContraEngine {
     ctx.fillText('PRESS R TO RESTART', this.W / 2, this.H / 2 + 120);
 
     ctx.textAlign = 'left';
+  }
+
+  private spawnPowerUp(x: number, y: number): void {
+    const types: PowerUp['type'][] = ['health', 'shield', 'ammo', 'rapidfire', 'spread', 'energy'];
+    const type = types[Math.floor(Math.random() * types.length)];
+    this.powerups.push({
+      pos: { x, y },
+      type,
+      active: true,
+      bobTimer: 0,
+    });
+  }
+
+  private updatePowerUps(dt: number): void {
+    this.powerups = this.powerups.filter(p => {
+      if (!p.active) return false;
+      p.bobTimer += dt * 3;
+      // Check collision with players
+      this.players.forEach(player => {
+        if (p.pos.x > player.pos.x && p.pos.x < player.pos.x + player.w &&
+            p.pos.y > player.pos.y && p.pos.y < player.pos.y + player.h) {
+          p.active = false;
+          playPowerUp();
+          this.applyPowerUp(player, p.type);
+        }
+      });
+      return p.active;
+    });
+  }
+
+  private applyPowerUp(player: ContraPlayer, type: PowerUp['type']): void {
+    switch (type) {
+      case 'health':
+        player.hp = Math.min(player.maxHp, player.hp + 30);
+        break;
+      case 'shield':
+        player.shieldEnergy = player.maxShieldEnergy;
+        break;
+      case 'ammo':
+        // Just visual feedback for now
+        break;
+      case 'rapidfire':
+      case 'spread':
+      case 'energy':
+        // TODO: Implement temporary buffs
+        break;
+    }
+  }
+
+  private renderPowerUps(): void {
+    const ctx = this.ctx;
+    const colors = {
+      health: '#ff3333',
+      shield: '#4488ff',
+      ammo: '#ffdd33',
+      rapidfire: '#33ff66',
+      spread: '#ff8833',
+      energy: '#aa33ff',
+    };
+    this.powerups.forEach(p => {
+      if (!p.active) return;
+      const bob = Math.sin(p.bobTimer) * 5;
+      ctx.fillStyle = colors[p.type];
+      ctx.fillRect(p.pos.x - 8, p.pos.y - 8 + bob, 16, 16);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(p.pos.x - 8, p.pos.y - 8 + bob, 16, 16);
+    });
   }
 }
