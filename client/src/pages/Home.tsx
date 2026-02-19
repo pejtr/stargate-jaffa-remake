@@ -37,9 +37,16 @@ export default function Home() {
         <Button
           onClick={() => setLocation('/highscores')}
           variant="outline"
-          className="border-yellow-500 text-yellow-400 hover:bg-yellow-900/30 text-lg px-8"
+          className="w-64 h-14 border-yellow-500 text-yellow-400 hover:bg-yellow-900/30 text-lg pixel-font"
         >
           🏆 HIGHSCORES
+        </Button>
+        <Button
+          onClick={() => setLocation('/settings')}
+          variant="outline"
+          className="w-64 h-14 border-blue-500 text-blue-400 hover:bg-blue-900/30 text-lg pixel-font"
+        >
+          ⚙️ SETTINGS
         </Button>
           
           <div className="text-gray-400 text-sm space-y-1">

@@ -650,25 +650,112 @@ export class ContraEngine {
   }
 
   private updateEnemy(e: Enemy, dt: number): void {
-    // Simple AI: move toward player, shoot occasionally
     if (this.players.length === 0) return;
     const target = this.players[0];
     const dx = target.pos.x - e.pos.x;
+    const dy = target.pos.y - e.pos.y;
     e.facing = dx > 0 ? 1 : -1;
 
-    if (Math.abs(dx) > 150) {
-      e.vel.x = e.facing * 1.2;
-    } else {
-      e.vel.x = 0;
-    }
+    // Unique behavior per enemy type
+    switch (e.type) {
+      case 'jaffa':
+        // Basic: Move toward player, shoot occasionally
+        if (Math.abs(dx) > 150) {
+          e.vel.x = e.facing * 1.2;
+        } else {
+          e.vel.x = 0;
+        }
+        e.pos.x += e.vel.x;
+        e.shootTimer -= dt;
+        if (e.shootTimer <= 0 && Math.abs(dx) < 400) {
+          this.enemyShoot(e);
+          e.shootTimer = 2 + Math.random() * 2;
+        }
+        break;
 
-    e.pos.x += e.vel.x;
+      case 'elite':
+        // Elite: Strafe movement, faster shooting
+        const strafeDir = Math.sin(Date.now() * 0.002) > 0 ? 1 : -1;
+        if (Math.abs(dx) > 200) {
+          e.vel.x = e.facing * 1.8;
+        } else {
+          e.vel.x = strafeDir * 1.5; // Strafe
+        }
+        e.pos.x += e.vel.x;
+        e.shootTimer -= dt;
+        if (e.shootTimer <= 0 && Math.abs(dx) < 500) {
+          this.enemyShoot(e);
+          // Double shot
+          setTimeout(() => this.enemyShoot(e), 150);
+          e.shootTimer = 1.5 + Math.random();
+        }
+        break;
 
-    // Shoot
-    e.shootTimer -= dt;
-    if (e.shootTimer <= 0 && Math.abs(dx) < 400) {
-      this.enemyShoot(e);
-      e.shootTimer = 2 + Math.random() * 2;
+      case 'kull':
+        // Kull Warrior: Slow but tanky, charge attack
+        if (Math.abs(dx) > 100) {
+          e.vel.x = e.facing * 0.8;
+        } else {
+          // Charge!
+          e.vel.x = e.facing * 4;
+        }
+        e.pos.x += e.vel.x;
+        e.shootTimer -= dt;
+        if (e.shootTimer <= 0 && Math.abs(dx) < 300) {
+          this.enemyShoot(e);
+          e.shootTimer = 3 + Math.random();
+        }
+        break;
+
+      case 'replicator':
+        // Replicator: Erratic movement, multi-shot
+        const erraticX = Math.sin(Date.now() * 0.005) * 2;
+        const erraticY = Math.cos(Date.now() * 0.003) * 1.5;
+        e.vel.x = e.facing * 1.5 + erraticX;
+        e.pos.x += e.vel.x;
+        e.shootTimer -= dt;
+        if (e.shootTimer <= 0 && Math.abs(dx) < 450) {
+          // Triple shot
+          this.enemyShoot(e);
+          setTimeout(() => this.enemyShoot(e), 100);
+          setTimeout(() => this.enemyShoot(e), 200);
+          e.shootTimer = 2.5 + Math.random();
+        }
+        break;
+
+      case 'ori':
+        // Ori Soldier: Teleport-like movement, powerful shots
+        if (Math.abs(dx) > 250) {
+          // Teleport closer
+          if (Math.random() < 0.01) {
+            e.pos.x += e.facing * 100;
+            this.createExplosion(e.pos.x, e.pos.y, 30);
+          } else {
+            e.vel.x = e.facing * 2;
+          }
+        } else {
+          e.vel.x = 0;
+        }
+        e.pos.x += e.vel.x;
+        e.shootTimer -= dt;
+        if (e.shootTimer <= 0 && Math.abs(dx) < 500) {
+          // Powerful spread shot
+          for (let i = -1; i <= 1; i++) {
+            const angle = i * 0.3;
+            this.bullets.push({
+              pos: { x: e.pos.x + e.w / 2, y: e.pos.y + e.h / 2 },
+              vel: { x: Math.cos(angle) * e.facing * 5, y: Math.sin(angle) * 5 },
+              w: 8, h: 8,
+              dmg: 15,
+              owner: 'enemy',
+              active: true,
+              trail: []
+            });
+          }
+          playShoot();
+          e.shootTimer = 2 + Math.random() * 1.5;
+        }
+        break;
     }
 
     // Animation
