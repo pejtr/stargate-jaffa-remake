@@ -1,17 +1,39 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CHARACTER_STATS, type CharacterType } from "@/lib/gameAssets";
+import { useState } from "react";
 import { useLocation } from "wouter";
 
 export default function CharacterSelect() {
   const [, setLocation] = useLocation();
   const gameMode = sessionStorage.getItem('gameMode') || 'contra';
-  const maxPlayers = gameMode === 'contra' ? 2 : 4;
+  const maxPlayers = gameMode === 'contra' ? 2 : 1;
+  
+  const [player1, setPlayer1] = useState<CharacterType | null>(null);
+  const [player2, setPlayer2] = useState<CharacterType | null>(null);
 
   const handleSelectCharacter = (character: CharacterType) => {
-    // Store selected character in sessionStorage
-    sessionStorage.setItem('selectedCharacter', character);
+    if (!player1) {
+      setPlayer1(character);
+    } else if (gameMode === 'contra' && !player2) {
+      setPlayer2(character);
+    }
+  };
+
+  const handleStart = () => {
+    if (!player1) return;
+    sessionStorage.setItem('selectedCharacter', player1);
+    if (player2) {
+      sessionStorage.setItem('player2Character', player2);
+    } else {
+      sessionStorage.removeItem('player2Character');
+    }
     setLocation('/game');
+  };
+
+  const handleReset = () => {
+    setPlayer1(null);
+    setPlayer2(null);
   };
 
   return (
@@ -42,18 +64,37 @@ export default function CharacterSelect() {
         <h2 className="text-4xl font-bold text-yellow-400 pixel-font">
           ZASTŘEL SI SVÉHO JAFFU 2
         </h2>
-        <p className="text-xl text-gray-300 mt-4">Select Your Character</p>
-        <p className="text-sm text-gray-400 mt-2">Max {maxPlayers} Player{maxPlayers > 1 ? 's' : ''}</p>
+        <p className="text-xl text-gray-300 mt-4">Select Your Character{maxPlayers > 1 ? 's' : ''}</p>
+        
+        {gameMode === 'contra' && (
+          <div className="mt-4 flex gap-8 justify-center">
+            <div className={`text-lg ${player1 ? 'text-green-400' : 'text-gray-500'}`}>
+              Player 1: {player1 ? CHARACTER_STATS[player1].name : '???'}
+            </div>
+            <div className={`text-lg ${player2 ? 'text-green-400' : 'text-gray-500'}`}>
+              Player 2: {player2 ? CHARACTER_STATS[player2].name : 'Optional'}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl">
         {(Object.keys(CHARACTER_STATS) as CharacterType[]).map((char) => {
           const stats = CHARACTER_STATS[char];
+          const isSelected = player1 === char || player2 === char;
+          const canSelect = !player1 || (gameMode === 'contra' && !player2 && player1 !== char);
+
           return (
             <Card
               key={char}
-              className="bg-slate-800/50 border-2 border-blue-500/30 hover:border-blue-400 transition-all hover:scale-105 cursor-pointer"
-              onClick={() => handleSelectCharacter(char)}
+              className={`border-2 transition-all ${
+                isSelected 
+                  ? 'bg-green-800/50 border-green-400 scale-105' 
+                  : canSelect
+                  ? 'bg-slate-800/50 border-blue-500/30 hover:border-blue-400 hover:scale-105 cursor-pointer'
+                  : 'bg-slate-800/20 border-gray-700 opacity-50 cursor-not-allowed'
+              }`}
+              onClick={() => canSelect && handleSelectCharacter(char)}
             >
               <CardHeader>
                 <CardTitle className="text-2xl text-blue-300">{stats.name}</CardTitle>
@@ -90,9 +131,11 @@ export default function CharacterSelect() {
                   <span className="text-gray-300">Weapon:</span>
                   <span className="text-blue-300 uppercase text-sm">{stats.weapon}</span>
                 </div>
-                <Button className="w-full mt-4 bg-blue-600 hover:bg-blue-700">
-                  SELECT
-                </Button>
+                {isSelected && (
+                  <div className="mt-2 text-center text-green-400 font-bold text-sm">
+                    ✓ SELECTED
+                  </div>
+                )}
               </CardContent>
             </Card>
           );
@@ -100,6 +143,23 @@ export default function CharacterSelect() {
       </div>
 
       <div className="mt-12 text-center flex gap-4 justify-center">
+        {player1 && (
+          <>
+            <Button
+              onClick={handleStart}
+              className="bg-green-600 hover:bg-green-700 text-lg px-8"
+            >
+              START GAME
+            </Button>
+            <Button
+              onClick={handleReset}
+              variant="outline"
+              className="border-gray-500 text-gray-300 hover:bg-gray-800"
+            >
+              Reset Selection
+            </Button>
+          </>
+        )}
         <Button
           variant="outline"
           onClick={() => setLocation('/mode-select')}

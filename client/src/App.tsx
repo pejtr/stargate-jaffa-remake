@@ -5,6 +5,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import Highscores from "./pages/Highscores";
 import ModeSelect from "./pages/ModeSelect";
 import CharacterSelect from "./pages/CharacterSelect";
 import Game from "./pages/Game";
@@ -17,6 +18,7 @@ function Router() {
       <Route path={"/mode-select"} component={ModeSelect} />
       <Route path={"/character-select"} component={CharacterSelect} />
       <Route path={"/game"} component={Game} />
+      <Route path={"/highscores"} component={Highscores} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

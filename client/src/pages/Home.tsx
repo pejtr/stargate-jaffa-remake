@@ -32,8 +32,15 @@ export default function Home() {
             onClick={() => setLocation('/mode-select')}
             className="w-64 h-16 text-2xl bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 pixel-font"
           >
-            START GAME
-          </Button>
+          START GAME
+        </Button>
+        <Button
+          onClick={() => setLocation('/highscores')}
+          variant="outline"
+          className="border-yellow-500 text-yellow-400 hover:bg-yellow-900/30 text-lg px-8"
+        >
+          🏆 HIGHSCORES
+        </Button>
           
           <div className="text-gray-400 text-sm space-y-1">
             <p>🎮 2 Game Modes: Contra & Defense</p>

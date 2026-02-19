@@ -1,66 +1,65 @@
 import { GAME_ASSETS, CHARACTER_STATS, type CharacterType } from './gameAssets';
+import { playShoot, playHit, playExplosion, playPowerUp, playDamage, playJump } from './audioEngine';
 
 // ─── Types ───────────────────────────────────────────────────────
 interface Vec2 { x: number; y: number }
+
+interface ContraPlayer {
+  pos: Vec2;
+  vel: Vec2;
+  w: number; h: number;
+  facing: 1 | -1;
+  onGround: boolean;
+  lives: number;
+  hp: number;
+  maxHp: number;
+  invTimer: number;
+  animFrame: number;
+  animTimer: number;
+  character: CharacterType;
+  currentWeapon: 0 | 1; // 0 = melee, 1 = ranged
+  shootCooldown: number;
+  shieldActive: boolean;
+  shieldEnergy: number;
+  maxShieldEnergy: number;
+  shieldRecharge: number;
+}
+
+interface Enemy {
+  pos: Vec2;
+  vel: Vec2;
+  w: number; h: number;
+  type: 'jaffa' | 'elite' | 'kull';
+  hp: number;
+  maxHp: number;
+  active: boolean;
+  facing: 1 | -1;
+  animFrame: number;
+  animTimer: number;
+  shootTimer: number;
+  hitFlash: number;
+  points: number;
+}
+
+interface Bullet {
+  pos: Vec2;
+  vel: Vec2;
+  w: number; h: number;
+  dmg: number;
+  owner: 'player' | 'enemy';
+  active: boolean;
+  trail: Vec2[];
+  type?: 'staff' | 'p90' | 'knife';
+}
+
+interface Platform {
+  x: number; y: number; w: number; h: number;
+}
 
 interface Particle {
   x: number; y: number; vx: number; vy: number;
   life: number; maxLife: number;
   color: string; size: number;
-}
-
-interface Platform {
-  x: number; y: number; w: number; h: number;
-  type: 'stone' | 'metal' | 'sand';
-}
-
-interface ContraPlayer {
-  character: CharacterType;
-  pos: Vec2; vel: Vec2;
-  w: number; h: number;
-  hp: number; maxHp: number; lives: number;
-  facing: 1 | -1;
-  onGround: boolean;
-  score: number;
-  invTimer: number;
-  shootCooldown: number;
-  aimAngle: number; // 0=right, PI=left, -PI/2=up etc
-  animFrame: number;
-  animTimer: number;
-  weaponType: 'default' | 'spread' | 'rapid' | 'laser';
-  weaponTimer: number;
-}
-
-interface Enemy {
-  pos: Vec2; vel: Vec2;
-  w: number; h: number;
-  hp: number; maxHp: number;
-  type: 'jaffa' | 'elite' | 'kull' | 'boss';
-  facing: 1 | -1;
-  shootTimer: number;
-  points: number;
-  active: boolean;
-  animFrame: number;
-  animTimer: number;
-  bossPhase?: number;
-  bossAttackTimer?: number;
-}
-
-interface Bullet {
-  pos: Vec2; vel: Vec2;
-  w: number; h: number;
-  dmg: number;
-  owner: 'player' | 'enemy';
-  active: boolean;
-  color: string;
-  trail: Vec2[];
-}
-
-interface PowerUp {
-  pos: Vec2; w: number; h: number;
-  type: 'spread' | 'rapid' | 'laser' | 'health' | 'life';
-  active: boolean;
-  animTimer: number;
 }
 
 interface Explosion {
@@ -69,94 +68,83 @@ interface Explosion {
   life: number; maxLife: number;
 }
 
-// ─── Level Data ──────────────────────────────────────────────────
-const LEVEL_1_PLATFORMS: Platform[] = [
-  // Ground platforms with gaps
-  { x: 0, y: 560, w: 600, h: 160, type: 'stone' },
-  { x: 700, y: 560, w: 400, h: 160, type: 'stone' },
-  { x: 1200, y: 560, w: 600, h: 160, type: 'stone' },
-  { x: 1900, y: 560, w: 500, h: 160, type: 'stone' },
-  { x: 2500, y: 560, w: 800, h: 160, type: 'stone' },
-  { x: 3400, y: 560, w: 600, h: 160, type: 'stone' },
-  // Elevated platforms
-  { x: 300, y: 420, w: 200, h: 24, type: 'metal' },
-  { x: 600, y: 340, w: 180, h: 24, type: 'metal' },
-  { x: 900, y: 400, w: 200, h: 24, type: 'metal' },
-  { x: 1400, y: 380, w: 250, h: 24, type: 'metal' },
-  { x: 1700, y: 300, w: 180, h: 24, type: 'metal' },
-  { x: 2000, y: 420, w: 200, h: 24, type: 'metal' },
-  { x: 2300, y: 340, w: 250, h: 24, type: 'metal' },
-  { x: 2700, y: 400, w: 200, h: 24, type: 'metal' },
-  { x: 3000, y: 320, w: 200, h: 24, type: 'metal' },
-  // High platforms
-  { x: 500, y: 220, w: 150, h: 24, type: 'sand' },
-  { x: 1100, y: 240, w: 180, h: 24, type: 'sand' },
-  { x: 1600, y: 180, w: 150, h: 24, type: 'sand' },
-  { x: 2500, y: 220, w: 200, h: 24, type: 'sand' },
-  // Boss arena
-  { x: 3600, y: 560, w: 800, h: 160, type: 'stone' },
-  { x: 3700, y: 380, w: 150, h: 24, type: 'metal' },
-  { x: 4050, y: 380, w: 150, h: 24, type: 'metal' },
-  { x: 3850, y: 240, w: 200, h: 24, type: 'metal' },
-];
-
-const ENEMY_SPAWNS = [
-  { x: 500, type: 'jaffa' as const },
-  { x: 700, type: 'jaffa' as const },
-  { x: 950, type: 'jaffa' as const },
-  { x: 1100, type: 'elite' as const },
-  { x: 1300, type: 'jaffa' as const },
-  { x: 1500, type: 'jaffa' as const },
-  { x: 1700, type: 'elite' as const },
-  { x: 1900, type: 'jaffa' as const },
-  { x: 2100, type: 'jaffa' as const },
-  { x: 2300, type: 'elite' as const },
-  { x: 2500, type: 'kull' as const },
-  { x: 2700, type: 'jaffa' as const },
-  { x: 2900, type: 'elite' as const },
-  { x: 3100, type: 'jaffa' as const },
-  { x: 3300, type: 'elite' as const },
-];
-
-const POWERUP_SPAWNS = [
-  { x: 400, y: 400, type: 'spread' as const },
-  { x: 950, y: 380, type: 'rapid' as const },
-  { x: 1600, y: 160, type: 'laser' as const },
-  { x: 2100, y: 400, type: 'health' as const },
-  { x: 2700, y: 380, type: 'life' as const },
-  { x: 3050, y: 300, type: 'health' as const },
-];
-
-// ─── Colors ──────────────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────
 const COLORS = {
-  sky: '#0f0a2e',
-  skyGrad: '#1a0f3d',
-  stars: '#ffffff',
-  ground: '#5c4033',
-  groundLight: '#8b6914',
-  stone: '#6b5b4f',
-  stoneLight: '#8b7b6f',
-  stoneDark: '#4b3b2f',
-  metal: '#556677',
-  metalLight: '#7799aa',
-  sand: '#c4a35a',
-  sandLight: '#d4b36a',
-  playerBullet: '#ffee00',
-  enemyBullet: '#ff3366',
+  sky: '#0a0a1e',
+  ground: '#3a2a1a',
+  platform: '#6b5a3a',
   jaffa: '#cc8833',
-  jaffaArmor: '#997722',
   elite: '#dd6622',
-  eliteArmor: '#bb4411',
-  kull: '#334455',
+  kull: '#445566',
   kullGlow: '#6688ff',
-  boss: '#880044',
-  bossGlow: '#ff0066',
+  gold: '#ffd700',
+  text: '#ffffff',
   health: '#ff3333',
   healthBg: '#441111',
-  shield: '#3388ff',
-  text: '#ffffff',
-  textShadow: '#000000',
-  gold: '#ffd700',
+  shield: '#4488ff',
+};
+
+const LEVEL_DATA = {
+  1: {
+    length: 3000,
+    platforms: [
+      // Ground level
+      { x: 0, y: 650, w: 3000, h: 70 },
+      // Platforms
+      { x: 300, y: 550, w: 200, h: 20 },
+      { x: 600, y: 450, w: 250, h: 20 },
+      { x: 1000, y: 500, w: 200, h: 20 },
+      { x: 1300, y: 400, w: 300, h: 20 },
+      { x: 1700, y: 500, w: 200, h: 20 },
+      { x: 2000, y: 450, w: 250, h: 20 },
+      { x: 2400, y: 550, w: 200, h: 20 },
+    ],
+    enemies: [
+      { x: 400, type: 'jaffa' as const },
+      { x: 700, type: 'jaffa' as const },
+      { x: 900, type: 'elite' as const },
+      { x: 1200, type: 'jaffa' as const },
+      { x: 1400, type: 'elite' as const },
+      { x: 1600, type: 'jaffa' as const },
+      { x: 1800, type: 'kull' as const },
+      { x: 2100, type: 'elite' as const },
+      { x: 2300, type: 'jaffa' as const },
+      { x: 2500, type: 'elite' as const },
+    ],
+    bossX: 2800,
+  },
+  2: {
+    length: 3500,
+    platforms: [
+      // Ground
+      { x: 0, y: 650, w: 3500, h: 70 },
+      // Goa'uld ship interior - more platforms
+      { x: 200, y: 500, w: 300, h: 20 },
+      { x: 600, y: 400, w: 200, h: 20 },
+      { x: 900, y: 350, w: 250, h: 20 },
+      { x: 1200, y: 450, w: 300, h: 20 },
+      { x: 1600, y: 350, w: 200, h: 20 },
+      { x: 1900, y: 500, w: 250, h: 20 },
+      { x: 2200, y: 400, w: 300, h: 20 },
+      { x: 2600, y: 500, w: 200, h: 20 },
+      { x: 2900, y: 450, w: 300, h: 20 },
+    ],
+    enemies: [
+      { x: 350, type: 'elite' as const },
+      { x: 550, type: 'jaffa' as const },
+      { x: 800, type: 'elite' as const },
+      { x: 1000, type: 'kull' as const },
+      { x: 1300, type: 'elite' as const },
+      { x: 1500, type: 'jaffa' as const },
+      { x: 1700, type: 'kull' as const },
+      { x: 2000, type: 'elite' as const },
+      { x: 2300, type: 'kull' as const },
+      { x: 2500, type: 'elite' as const },
+      { x: 2700, type: 'jaffa' as const },
+      { x: 3000, type: 'kull' as const },
+    ],
+    bossX: 3300,
+  },
 };
 
 // ─── Engine ──────────────────────────────────────────────────────
@@ -169,36 +157,31 @@ export class ContraEngine {
   private players: ContraPlayer[] = [];
   private enemies: Enemy[] = [];
   private bullets: Bullet[] = [];
+  private platforms: Platform[] = [];
   private particles: Particle[] = [];
   private explosions: Explosion[] = [];
-  private powerUps: PowerUp[] = [];
-  private platforms: Platform[] = [];
-  
+
   private cameraX = 0;
   private score = 0;
+  private currentLevel = 1;
+  private spawnedEnemyIndex = 0;
+  private bossSpawned = false;
+  private boss: Enemy | null = null;
   private gameOver = false;
   private victory = false;
-  private bossSpawned = false;
-  private bossDefeated = false;
-  private wave = 1;
-  private spawnedEnemyIndex = 0;
-  
+
   private keys = new Set<string>();
   private lastTime = 0;
   private rafId: number | null = null;
-  
-  // Stars for parallax
-  private stars: { x: number; y: number; size: number; brightness: number }[] = [];
-  // Background image
+
+  // Background
   private bgImage: HTMLImageElement | null = null;
   private bgLoaded = false;
 
   // Constants
-  private readonly GRAVITY = 0.65;
-  private readonly JUMP = -14;
-  private readonly SPEED = 4.5;
-  private readonly LEVEL_W = 4400;
-  private readonly BOSS_X = 3800;
+  private readonly SPEED = 3;
+  private readonly JUMP = -12;
+  private readonly GRAVITY = 0.5;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -206,78 +189,74 @@ export class ContraEngine {
     this.W = canvas.width;
     this.H = canvas.height;
 
-    // Generate stars
-    for (let i = 0; i < 200; i++) {
-      this.stars.push({
-        x: Math.random() * this.LEVEL_W,
-        y: Math.random() * 400,
-        size: Math.random() * 2 + 0.5,
-        brightness: Math.random(),
-      });
-    }
-
     // Load background
     this.bgImage = new Image();
     this.bgImage.crossOrigin = 'anonymous';
     this.bgImage.onload = () => { this.bgLoaded = true; };
     this.bgImage.src = GAME_ASSETS.backgrounds.level1;
 
-    // Copy platforms
-    this.platforms = [...LEVEL_1_PLATFORMS];
-
-    // Spawn power-ups
-    POWERUP_SPAWNS.forEach(s => {
-      this.powerUps.push({
-        pos: { x: s.x, y: s.y },
-        w: 24, h: 24,
-        type: s.type,
-        active: true,
-        animTimer: Math.random() * Math.PI * 2,
-      });
-    });
-
+    this.loadLevel(1);
     this.setupInput();
   }
 
-  // ─── Input ───────────────────────────────────────────────────
+  private loadLevel(level: number): void {
+    this.currentLevel = level;
+    const data = LEVEL_DATA[level as 1 | 2];
+    this.platforms = data.platforms.map(p => ({ ...p }));
+    this.spawnedEnemyIndex = 0;
+    this.bossSpawned = false;
+    this.boss = null;
+  }
+
   private setupInput(): void {
-    const onDown = (e: KeyboardEvent) => {
+    const onKeyDown = (e: KeyboardEvent) => {
       this.keys.add(e.key.toLowerCase());
-      if (['w','a','s','d',' ','arrowup','arrowdown','arrowleft','arrowright','control'].includes(e.key.toLowerCase())) {
-        e.preventDefault();
+      
+      // Weapon switching
+      if (e.key === 'Control' || e.key === 'Alt') {
+        this.players.forEach(p => {
+          p.currentWeapon = e.key === 'Control' ? 0 : 1;
+        });
       }
     };
-    const onUp = (e: KeyboardEvent) => {
+
+    const onKeyUp = (e: KeyboardEvent) => {
       this.keys.delete(e.key.toLowerCase());
     };
-    window.addEventListener('keydown', onDown);
-    window.addEventListener('keyup', onUp);
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+
     (this as any)._cleanup = () => {
-      window.removeEventListener('keydown', onDown);
-      window.removeEventListener('keyup', onUp);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
     };
   }
 
   // ─── Public API ──────────────────────────────────────────────
-  public addPlayer(char: CharacterType): void {
+  public addPlayer(char: CharacterType, playerIndex: number = 0): void {
+    if (this.players.length >= 2) return;
+
     const stats = CHARACTER_STATS[char];
-    const i = this.players.length;
     this.players.push({
-      character: char,
-      pos: { x: 80 + i * 50, y: 500 },
+      pos: { x: 100 + playerIndex * 50, y: 500 },
       vel: { x: 0, y: 0 },
-      w: 28, h: 44,
-      hp: stats.health, maxHp: stats.health,
-      lives: 3,
+      w: 24, h: 32,
       facing: 1,
       onGround: false,
-      score: 0,
-      invTimer: 2,
+      lives: stats.health,
+      hp: stats.health * 20,
+      maxHp: stats.health * 20,
+      invTimer: 0,
+      animFrame: 0,
+      animTimer: 0,
+      character: char,
+      currentWeapon: 1, // Start with ranged
       shootCooldown: 0,
-      aimAngle: 0,
-      animFrame: 0, animTimer: 0,
-      weaponType: 'default',
-      weaponTimer: 0,
+      shieldActive: false,
+      shieldEnergy: 100,
+      maxShieldEnergy: 100,
+      shieldRecharge: 0,
     });
   }
 
@@ -297,24 +276,11 @@ export class ContraEngine {
     this.bullets = [];
     this.particles = [];
     this.explosions = [];
-    this.powerUps = [];
     this.cameraX = 0;
     this.score = 0;
     this.gameOver = false;
     this.victory = false;
-    this.bossSpawned = false;
-    this.bossDefeated = false;
-    this.spawnedEnemyIndex = 0;
-    this.platforms = [...LEVEL_1_PLATFORMS];
-    POWERUP_SPAWNS.forEach(s => {
-      this.powerUps.push({
-        pos: { x: s.x, y: s.y },
-        w: 24, h: 24,
-        type: s.type,
-        active: true,
-        animTimer: Math.random() * Math.PI * 2,
-      });
-    });
+    this.loadLevel(1);
   }
 
   public getState() {
@@ -335,18 +301,20 @@ export class ContraEngine {
 
   // ─── Update ──────────────────────────────────────────────────
   private update(dt: number): void {
-    // Spawn enemies as camera advances
+    const levelData = LEVEL_DATA[this.currentLevel as 1 | 2];
+
+    // Spawn enemies
     while (
-      this.spawnedEnemyIndex < ENEMY_SPAWNS.length &&
-      ENEMY_SPAWNS[this.spawnedEnemyIndex].x < this.cameraX + this.W + 100
+      this.spawnedEnemyIndex < levelData.enemies.length &&
+      levelData.enemies[this.spawnedEnemyIndex].x < this.cameraX + this.W + 100
     ) {
-      const sp = ENEMY_SPAWNS[this.spawnedEnemyIndex];
+      const sp = levelData.enemies[this.spawnedEnemyIndex];
       this.spawnEnemy(sp.x, sp.type);
       this.spawnedEnemyIndex++;
     }
 
     // Boss spawn
-    if (!this.bossSpawned && this.cameraX > this.BOSS_X - this.W) {
+    if (!this.bossSpawned && this.cameraX > levelData.bossX - this.W) {
       this.spawnBoss();
       this.bossSpawned = true;
     }
@@ -359,21 +327,20 @@ export class ContraEngine {
       const p = this.players[0];
       const targetCam = p.pos.x - this.W / 3;
       this.cameraX += (targetCam - this.cameraX) * 0.08;
-      this.cameraX = Math.max(0, Math.min(this.LEVEL_W - this.W, this.cameraX));
+      this.cameraX = Math.max(0, Math.min(levelData.length - this.W, this.cameraX));
     }
 
     // Enemies
     this.enemies.forEach(e => { if (e.active) this.updateEnemy(e, dt); });
+    if (this.boss && this.boss.active) this.updateBoss(this.boss, dt);
 
     // Bullets
     this.bullets = this.bullets.filter(b => {
       if (!b.active) return false;
       b.pos.x += b.vel.x;
       b.pos.y += b.vel.y;
-      // Trail
       b.trail.push({ x: b.pos.x, y: b.pos.y });
       if (b.trail.length > 6) b.trail.shift();
-      // Off screen
       if (b.pos.x < this.cameraX - 200 || b.pos.x > this.cameraX + this.W + 200 ||
           b.pos.y < -200 || b.pos.y > this.H + 200) {
         return false;
@@ -396,19 +363,50 @@ export class ContraEngine {
       return e.life > 0;
     });
 
-    // Power-up animation
-    this.powerUps.forEach(pu => { pu.animTimer += dt * 3; });
-
     // Collisions
     this.checkCollisions();
+
+    // Check victory
+    if (this.boss && !this.boss.active && this.currentLevel === 2) {
+      this.victory = true;
+      this.gameOver = true;
+    } else if (this.boss && !this.boss.active && this.currentLevel === 1) {
+      // Load level 2
+      this.loadLevel(2);
+      this.players.forEach(p => {
+        p.pos.x = 100;
+        p.pos.y = 500;
+      });
+    }
   }
 
   private updatePlayer(p: ContraPlayer, idx: number, dt: number): void {
-    const left = idx === 0 ? (this.keys.has('a') || this.keys.has('arrowleft')) : false;
-    const right = idx === 0 ? (this.keys.has('d') || this.keys.has('arrowright')) : false;
-    const up = idx === 0 ? (this.keys.has('w') || this.keys.has('arrowup')) : false;
-    const down = idx === 0 ? (this.keys.has('s') || this.keys.has('arrowdown')) : false;
-    const shoot = this.keys.has('control');
+    // Player 1: WASD + Space, Player 2: IJKL + Enter
+    const controls = idx === 0 
+      ? { left: 'a', right: 'd', up: 'w', down: 's', shoot: ' ', shield: 'shift' }
+      : { left: 'j', right: 'l', up: 'i', down: 'k', shoot: 'enter', shield: 'shift' };
+
+    const left = this.keys.has(controls.left);
+    const right = this.keys.has(controls.right);
+    const up = this.keys.has(controls.up);
+    const shoot = this.keys.has(controls.shoot);
+    const shield = this.keys.has(controls.shield);
+
+    // Shield
+    if (shield && p.shieldEnergy > 0) {
+      p.shieldActive = true;
+      p.shieldEnergy -= dt * 30;
+      if (p.shieldEnergy < 0) p.shieldEnergy = 0;
+      p.shieldRecharge = 2; // 2s cooldown after deactivation
+    } else {
+      p.shieldActive = false;
+      if (p.shieldRecharge > 0) {
+        p.shieldRecharge -= dt;
+      } else if (p.shieldEnergy < p.maxShieldEnergy) {
+        p.shieldEnergy += dt * 15;
+        if (p.shieldEnergy > p.maxShieldEnergy) p.shieldEnergy = p.maxShieldEnergy;
+      }
+    }
 
     // Movement
     if (left) { p.vel.x = -this.SPEED; p.facing = -1; }
@@ -419,16 +417,8 @@ export class ContraEngine {
     if (up && p.onGround) {
       p.vel.y = this.JUMP;
       p.onGround = false;
+      playJump();
     }
-
-    // Aim angle
-    if (up && !left && !right) p.aimAngle = -Math.PI / 2;
-    else if (up && right) p.aimAngle = -Math.PI / 4;
-    else if (up && left) p.aimAngle = -3 * Math.PI / 4;
-    else if (down && !p.onGround && right) p.aimAngle = Math.PI / 4;
-    else if (down && !p.onGround && left) p.aimAngle = 3 * Math.PI / 4;
-    else if (down && !p.onGround) p.aimAngle = Math.PI / 2;
-    else p.aimAngle = p.facing === 1 ? 0 : Math.PI;
 
     // Gravity
     p.vel.y += this.GRAVITY;
@@ -439,7 +429,6 @@ export class ContraEngine {
     p.onGround = false;
     this.platforms.forEach(plat => {
       if (p.pos.x + p.w > plat.x && p.pos.x < plat.x + plat.w) {
-        // Landing on top
         if (p.vel.y >= 0 && p.pos.y + p.h > plat.y && p.pos.y + p.h < plat.y + plat.h + 12) {
           p.pos.y = plat.y - p.h;
           p.vel.y = 0;
@@ -449,9 +438,9 @@ export class ContraEngine {
     });
 
     // Screen bounds
-    p.pos.x = Math.max(this.cameraX, Math.min(this.LEVEL_W - p.w, p.pos.x));
+    const levelData = LEVEL_DATA[this.currentLevel as 1 | 2];
+    p.pos.x = Math.max(this.cameraX, Math.min(levelData.length - p.w, p.pos.x));
     if (p.pos.y > this.H + 50) {
-      // Fell off
       p.lives--;
       if (p.lives <= 0) { this.gameOver = true; return; }
       p.hp = p.maxHp;
@@ -468,14 +457,8 @@ export class ContraEngine {
     p.shootCooldown -= dt;
     if (shoot && p.shootCooldown <= 0) {
       this.playerShoot(p);
-      const cd = p.weaponType === 'rapid' ? 0.08 : p.weaponType === 'laser' ? 0.15 : 0.2;
+      const cd = p.currentWeapon === 0 ? 0.4 : 0.15; // Melee slower, ranged faster
       p.shootCooldown = cd;
-    }
-
-    // Weapon timer
-    if (p.weaponTimer > 0) {
-      p.weaponTimer -= dt;
-      if (p.weaponTimer <= 0) p.weaponType = 'default';
     }
 
     // Animation
@@ -489,333 +472,286 @@ export class ContraEngine {
   private playerShoot(p: ContraPlayer): void {
     const cx = p.pos.x + p.w / 2;
     const cy = p.pos.y + p.h / 3;
-    const speed = 12;
 
-    if (p.weaponType === 'spread') {
-      for (let a = -0.3; a <= 0.3; a += 0.3) {
-        const angle = p.aimAngle + a;
-        this.bullets.push({
-          pos: { x: cx, y: cy },
-          vel: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
-          w: 6, h: 4, dmg: 1, owner: 'player', active: true,
-          color: '#ffee00', trail: [],
+    playShoot();
+
+    if (p.currentWeapon === 0) {
+      // Melee (knife/fist)
+      const isTealc = p.character === 'tealc';
+      const range = isTealc ? 40 : 35;
+      const dmg = isTealc ? 25 : 20;
+      
+      // Check melee hit
+      this.enemies.forEach(e => {
+        if (!e.active) return;
+        const dx = e.pos.x - cx;
+        const dy = e.pos.y - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < range && Math.sign(dx) === p.facing) {
+          e.hp -= dmg;
+          e.hitFlash = 0.2;
+          playHit();
+          if (e.hp <= 0) {
+            e.active = false;
+            this.score += e.points;
+            this.createExplosion(e.pos.x, e.pos.y, 40);
+          }
+        }
+      });
+
+      // Melee effect particles
+      for (let i = 0; i < 5; i++) {
+        this.particles.push({
+          x: cx + p.facing * 30,
+          y: cy,
+          vx: p.facing * (4 + Math.random() * 4),
+          vy: (Math.random() - 0.5) * 4,
+          life: 0.2, maxLife: 0.2,
+          color: isTealc ? '#ffaa00' : '#cccccc',
+          size: 3 + Math.random() * 3,
         });
       }
-    } else if (p.weaponType === 'laser') {
+
+    } else {
+      // Ranged weapon
+      const isTealc = p.character === 'tealc';
+      const speed = isTealc ? 10 : 14;
+      const dmg = isTealc ? 15 : 8;
+      const type = isTealc ? 'staff' : 'p90';
+
       this.bullets.push({
         pos: { x: cx, y: cy },
-        vel: { x: Math.cos(p.aimAngle) * speed * 1.5, y: Math.sin(p.aimAngle) * speed * 1.5 },
-        w: 16, h: 3, dmg: 3, owner: 'player', active: true,
-        color: '#00ffff', trail: [],
-      });
-    } else {
-      this.bullets.push({
-        pos: { x: cx, y: cy },
-        vel: { x: Math.cos(p.aimAngle) * speed, y: Math.sin(p.aimAngle) * speed },
-        w: 8, h: 4, dmg: 1, owner: 'player', active: true,
-        color: COLORS.playerBullet, trail: [],
+        vel: { x: p.facing * speed, y: 0 },
+        w: 8, h: 4,
+        dmg,
+        owner: 'player',
+        active: true,
+        trail: [],
+        type,
       });
     }
-
-    // Muzzle flash particles
-    for (let i = 0; i < 4; i++) {
-      this.particles.push({
-        x: cx + Math.cos(p.aimAngle) * 15,
-        y: cy + Math.sin(p.aimAngle) * 15,
-        vx: Math.cos(p.aimAngle) * (3 + Math.random() * 3) + (Math.random() - 0.5) * 2,
-        vy: Math.sin(p.aimAngle) * (3 + Math.random() * 3) + (Math.random() - 0.5) * 2,
-        life: 0.15, maxLife: 0.15,
-        color: '#ffaa00', size: 3 + Math.random() * 3,
-      });
-    }
-  }
-
-  private updateEnemy(e: Enemy, dt: number): void {
-    if (e.type === 'boss') {
-      this.updateBoss(e, dt);
-      return;
-    }
-
-    const p = this.players[0];
-    if (!p) return;
-
-    const dx = p.pos.x - e.pos.x;
-    const dist = Math.abs(dx);
-
-    e.facing = dx > 0 ? 1 : -1;
-
-    // Move towards player
-    if (dist > 120) {
-      const spd = e.type === 'kull' ? 1 : e.type === 'elite' ? 2 : 1.5;
-      e.vel.x = e.facing * spd;
-    } else {
-      e.vel.x = 0;
-    }
-
-    // Gravity
-    e.vel.y += this.GRAVITY;
-    e.pos.x += e.vel.x;
-    e.pos.y += e.vel.y;
-
-    // Platform collisions
-    this.platforms.forEach(plat => {
-      if (e.pos.x + e.w > plat.x && e.pos.x < plat.x + plat.w) {
-        if (e.vel.y >= 0 && e.pos.y + e.h > plat.y && e.pos.y + e.h < plat.y + plat.h + 12) {
-          e.pos.y = plat.y - e.h;
-          e.vel.y = 0;
-        }
-      }
-    });
-
-    // Shoot
-    e.shootTimer -= dt;
-    if (e.shootTimer <= 0 && dist < 500) {
-      this.enemyShoot(e);
-      e.shootTimer = e.type === 'elite' ? 1.5 : e.type === 'kull' ? 1 : 2.5;
-      e.shootTimer += Math.random() * 0.5;
-    }
-
-    // Animation
-    e.animTimer += dt;
-    if (e.animTimer > 0.2) { e.animTimer = 0; e.animFrame = (e.animFrame + 1) % 4; }
-
-    // Fall off
-    if (e.pos.y > this.H + 100) e.active = false;
-  }
-
-  private updateBoss(e: Enemy, dt: number): void {
-    const p = this.players[0];
-    if (!p) return;
-
-    e.bossAttackTimer = (e.bossAttackTimer || 0) - dt;
-    const phase = e.bossPhase || 0;
-
-    // Movement - hover and track player
-    const targetX = p.pos.x;
-    const dx = targetX - e.pos.x;
-    e.vel.x = dx * 0.01;
-    e.pos.x += e.vel.x;
-
-    // Hover
-    e.pos.y = 200 + Math.sin(performance.now() / 800) * 40;
-    e.facing = dx > 0 ? 1 : -1;
-
-    // Attack patterns based on HP
-    if (e.bossAttackTimer! <= 0) {
-      if (e.hp > e.maxHp * 0.6) {
-        // Phase 1: Single shots
-        this.enemyShoot(e);
-        e.bossAttackTimer = 0.8;
-      } else if (e.hp > e.maxHp * 0.3) {
-        // Phase 2: Spread shots
-        for (let a = -0.4; a <= 0.4; a += 0.2) {
-          const angle = Math.atan2(p.pos.y - e.pos.y, p.pos.x - e.pos.x) + a;
-          this.bullets.push({
-            pos: { x: e.pos.x + e.w / 2, y: e.pos.y + e.h / 2 },
-            vel: { x: Math.cos(angle) * 6, y: Math.sin(angle) * 6 },
-            w: 10, h: 10, dmg: 1, owner: 'enemy', active: true,
-            color: COLORS.bossGlow, trail: [],
-          });
-        }
-        e.bossAttackTimer = 1.2;
-      } else {
-        // Phase 3: Rapid fire + tracking
-        const angle = Math.atan2(p.pos.y - e.pos.y, p.pos.x - e.pos.x);
-        this.bullets.push({
-          pos: { x: e.pos.x + e.w / 2, y: e.pos.y + e.h / 2 },
-          vel: { x: Math.cos(angle) * 8, y: Math.sin(angle) * 8 },
-          w: 12, h: 12, dmg: 2, owner: 'enemy', active: true,
-          color: '#ff0000', trail: [],
-        });
-        e.bossAttackTimer = 0.4;
-      }
-    }
-
-    // Animation
-    e.animTimer += dt;
-    if (e.animTimer > 0.1) { e.animTimer = 0; e.animFrame = (e.animFrame + 1) % 4; }
-  }
-
-  private enemyShoot(e: Enemy): void {
-    const p = this.players[0];
-    if (!p) return;
-
-    const angle = Math.atan2(p.pos.y - e.pos.y, p.pos.x - e.pos.x);
-    const speed = e.type === 'kull' ? 7 : 5;
-
-    this.bullets.push({
-      pos: { x: e.pos.x + e.w / 2, y: e.pos.y + e.h / 3 },
-      vel: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
-      w: 8, h: 8, dmg: 1, owner: 'enemy', active: true,
-      color: e.type === 'kull' ? COLORS.kullGlow : COLORS.enemyBullet,
-      trail: [],
-    });
   }
 
   private spawnEnemy(x: number, type: 'jaffa' | 'elite' | 'kull'): void {
     const data = {
-      jaffa: { hp: 2, pts: 100, w: 28, h: 44 },
-      elite: { hp: 4, pts: 250, w: 28, h: 44 },
-      kull: { hp: 10, pts: 500, w: 36, h: 52 },
+      jaffa: { hp: 30, pts: 100 },
+      elite: { hp: 50, pts: 250 },
+      kull: { hp: 100, pts: 500 },
     }[type];
 
     this.enemies.push({
-      pos: { x, y: 100 },
+      pos: { x, y: 600 },
       vel: { x: 0, y: 0 },
-      w: data.w, h: data.h,
-      hp: data.hp, maxHp: data.hp,
-      type, facing: -1,
-      shootTimer: 2 + Math.random() * 2,
-      points: data.pts,
+      w: 24, h: 32,
+      type,
+      hp: data.hp,
+      maxHp: data.hp,
       active: true,
-      animFrame: 0, animTimer: 0,
+      facing: -1,
+      animFrame: 0,
+      animTimer: 0,
+      shootTimer: 2 + Math.random() * 2,
+      hitFlash: 0,
+      points: data.pts,
     });
   }
 
   private spawnBoss(): void {
-    this.enemies.push({
-      pos: { x: this.BOSS_X + 100, y: 200 },
+    const levelData = LEVEL_DATA[this.currentLevel as 1 | 2];
+    this.boss = {
+      pos: { x: levelData.bossX, y: 550 },
       vel: { x: 0, y: 0 },
-      w: 80, h: 80,
-      hp: 50, maxHp: 50,
-      type: 'boss', facing: -1,
-      shootTimer: 0,
-      points: 5000,
+      w: 48, h: 64,
+      type: 'kull',
+      hp: 500,
+      maxHp: 500,
       active: true,
-      animFrame: 0, animTimer: 0,
-      bossPhase: 0,
-      bossAttackTimer: 2,
+      facing: -1,
+      animFrame: 0,
+      animTimer: 0,
+      shootTimer: 1,
+      hitFlash: 0,
+      points: 5000,
+    };
+  }
+
+  private updateEnemy(e: Enemy, dt: number): void {
+    // Simple AI: move toward player, shoot occasionally
+    if (this.players.length === 0) return;
+    const target = this.players[0];
+    const dx = target.pos.x - e.pos.x;
+    e.facing = dx > 0 ? 1 : -1;
+
+    if (Math.abs(dx) > 150) {
+      e.vel.x = e.facing * 1.2;
+    } else {
+      e.vel.x = 0;
+    }
+
+    e.pos.x += e.vel.x;
+
+    // Shoot
+    e.shootTimer -= dt;
+    if (e.shootTimer <= 0 && Math.abs(dx) < 400) {
+      this.enemyShoot(e);
+      e.shootTimer = 2 + Math.random() * 2;
+    }
+
+    // Animation
+    e.animTimer += dt;
+    if (e.animTimer > 0.2) {
+      e.animTimer = 0;
+      e.animFrame = (e.animFrame + 1) % 4;
+    }
+
+    if (e.hitFlash > 0) e.hitFlash -= dt;
+  }
+
+  private updateBoss(e: Enemy, dt: number): void {
+    // Boss AI: more aggressive
+    if (this.players.length === 0) return;
+    const target = this.players[0];
+    const dx = target.pos.x - e.pos.x;
+    e.facing = dx > 0 ? 1 : -1;
+
+    if (Math.abs(dx) > 200) {
+      e.vel.x = e.facing * 2;
+    } else {
+      e.vel.x = 0;
+    }
+
+    e.pos.x += e.vel.x;
+
+    // Shoot faster
+    e.shootTimer -= dt;
+    if (e.shootTimer <= 0) {
+      this.enemyShoot(e);
+      e.shootTimer = 0.8;
+    }
+
+    e.animTimer += dt;
+    if (e.animTimer > 0.15) {
+      e.animTimer = 0;
+      e.animFrame = (e.animFrame + 1) % 4;
+    }
+
+    if (e.hitFlash > 0) e.hitFlash -= dt;
+  }
+
+  private enemyShoot(e: Enemy): void {
+    const cx = e.pos.x + e.w / 2;
+    const cy = e.pos.y + e.h / 3;
+
+    this.bullets.push({
+      pos: { x: cx, y: cy },
+      vel: { x: e.facing * 6, y: 0 },
+      w: 8, h: 6,
+      dmg: 10,
+      owner: 'enemy',
+      active: true,
+      trail: [],
     });
   }
 
-  // ─── Collisions ──────────────────────────────────────────────
   private checkCollisions(): void {
     // Player bullets vs enemies
     this.bullets.forEach(b => {
-      if (b.owner !== 'player' || !b.active) return;
+      if (!b.active || b.owner !== 'player') return;
+      
       this.enemies.forEach(e => {
         if (!e.active) return;
-        if (this.aabb(b, e)) {
-          b.active = false;
+        if (b.pos.x < e.pos.x + e.w && b.pos.x + b.w > e.pos.x &&
+            b.pos.y < e.pos.y + e.h && b.pos.y + b.h > e.pos.y) {
           e.hp -= b.dmg;
-          // Hit particles
-          for (let i = 0; i < 6; i++) {
-            this.particles.push({
-              x: b.pos.x, y: b.pos.y,
-              vx: (Math.random() - 0.5) * 6,
-              vy: (Math.random() - 0.5) * 6 - 2,
-              life: 0.3, maxLife: 0.3,
-              color: '#ffaa00', size: 3,
-            });
-          }
+          e.hitFlash = 0.15;
+          b.active = false;
+          playHit();
+
           if (e.hp <= 0) {
             e.active = false;
             this.score += e.points;
-            this.spawnExplosion(e.pos.x + e.w / 2, e.pos.y + e.h / 2, e.type === 'boss' ? 120 : e.type === 'kull' ? 60 : 40);
-            // Death particles
-            const color = e.type === 'boss' ? COLORS.bossGlow : e.type === 'kull' ? COLORS.kullGlow : COLORS.jaffa;
-            for (let i = 0; i < 20; i++) {
-              this.particles.push({
-                x: e.pos.x + e.w / 2, y: e.pos.y + e.h / 2,
-                vx: (Math.random() - 0.5) * 10,
-                vy: (Math.random() - 0.5) * 10 - 3,
-                life: 0.6 + Math.random() * 0.4, maxLife: 1,
-                color, size: 2 + Math.random() * 4,
-              });
-            }
-            if (e.type === 'boss') {
-              this.victory = true;
-              this.bossDefeated = true;
-              // Big explosion
-              for (let i = 0; i < 8; i++) {
-                setTimeout(() => {
-                  this.spawnExplosion(
-                    e.pos.x + e.w / 2 + (Math.random() - 0.5) * 100,
-                    e.pos.y + e.h / 2 + (Math.random() - 0.5) * 100,
-                    80
-                  );
-                }, i * 200);
-              }
-              setTimeout(() => { this.gameOver = true; }, 3000);
-            }
+            this.createExplosion(e.pos.x, e.pos.y, 45);
           }
         }
       });
+
+      // Boss
+      if (this.boss && this.boss.active) {
+        const e = this.boss;
+        if (b.pos.x < e.pos.x + e.w && b.pos.x + b.w > e.pos.x &&
+            b.pos.y < e.pos.y + e.h && b.pos.y + b.h > e.pos.y) {
+          e.hp -= b.dmg;
+          e.hitFlash = 0.15;
+          b.active = false;
+          playHit();
+
+          if (e.hp <= 0) {
+            e.active = false;
+            this.score += e.points;
+            this.createExplosion(e.pos.x, e.pos.y, 80);
+          }
+        }
+      }
     });
 
     // Enemy bullets vs players
     this.bullets.forEach(b => {
-      if (b.owner !== 'enemy' || !b.active) return;
+      if (!b.active || b.owner !== 'enemy') return;
+
       this.players.forEach(p => {
         if (p.invTimer > 0) return;
-        if (this.aabb(b, p)) {
-          b.active = false;
-          p.hp -= b.dmg;
-          p.invTimer = 1.5;
-          // Hit flash
-          for (let i = 0; i < 8; i++) {
-            this.particles.push({
-              x: p.pos.x + p.w / 2, y: p.pos.y + p.h / 2,
-              vx: (Math.random() - 0.5) * 8,
-              vy: (Math.random() - 0.5) * 8,
-              life: 0.3, maxLife: 0.3,
-              color: '#ff0000', size: 4,
-            });
-          }
-          if (p.hp <= 0) {
-            p.lives--;
-            if (p.lives <= 0) {
-              this.gameOver = true;
-            } else {
-              p.hp = p.maxHp;
-              p.invTimer = 3;
-              p.pos.x = this.cameraX + 100;
-              p.pos.y = 100;
-              p.vel.y = 0;
+        if (b.pos.x < p.pos.x + p.w && b.pos.x + b.w > p.pos.x &&
+            b.pos.y < p.pos.y + p.h && b.pos.y + b.h > p.pos.y) {
+          
+          if (p.shieldActive) {
+            // Shield absorbs hit
+            b.active = false;
+            for (let i = 0; i < 8; i++) {
+              this.particles.push({
+                x: b.pos.x, y: b.pos.y,
+                vx: (Math.random() - 0.5) * 6,
+                vy: (Math.random() - 0.5) * 6,
+                life: 0.3, maxLife: 0.3,
+                color: COLORS.shield, size: 3,
+              });
+            }
+          } else {
+            p.hp -= b.dmg;
+            b.active = false;
+            playDamage();
+
+            if (p.hp <= 0) {
+              p.lives--;
+              if (p.lives <= 0) {
+                this.gameOver = true;
+              } else {
+                p.hp = p.maxHp;
+                p.invTimer = 3;
+              }
             }
           }
         }
       });
     });
-
-    // Players vs power-ups
-    this.powerUps.forEach(pu => {
-      if (!pu.active) return;
-      this.players.forEach(p => {
-        if (this.aabb(pu, p)) {
-          pu.active = false;
-          switch (pu.type) {
-            case 'spread': p.weaponType = 'spread'; p.weaponTimer = 15; break;
-            case 'rapid': p.weaponType = 'rapid'; p.weaponTimer = 10; break;
-            case 'laser': p.weaponType = 'laser'; p.weaponTimer = 12; break;
-            case 'health': p.hp = Math.min(p.hp + 2, p.maxHp); break;
-            case 'life': p.lives++; break;
-          }
-          // Pickup particles
-          for (let i = 0; i < 12; i++) {
-            this.particles.push({
-              x: pu.pos.x + pu.w / 2, y: pu.pos.y + pu.h / 2,
-              vx: (Math.random() - 0.5) * 6,
-              vy: -Math.random() * 6,
-              life: 0.5, maxLife: 0.5,
-              color: COLORS.gold, size: 3,
-            });
-          }
-        }
-      });
-    });
   }
 
-  private aabb(a: any, b: any): boolean {
-    return a.pos.x < b.pos.x + b.w && a.pos.x + a.w > b.pos.x &&
-           a.pos.y < b.pos.y + b.h && a.pos.y + a.h > b.pos.y;
-  }
-
-  private spawnExplosion(x: number, y: number, radius: number): void {
+  private createExplosion(x: number, y: number, radius: number): void {
+    playExplosion();
     this.explosions.push({
-      x, y, radius: 5, maxRadius: radius,
+      x, y,
+      radius: 5, maxRadius: radius,
       life: 0.4, maxLife: 0.4,
     });
+
+    for (let i = 0; i < 20; i++) {
+      this.particles.push({
+        x, y,
+        vx: (Math.random() - 0.5) * 12,
+        vy: (Math.random() - 0.5) * 12 - 4,
+        life: 0.5 + Math.random() * 0.5, maxLife: 1,
+        color: '#ff8800', size: 3 + Math.random() * 5,
+      });
+    }
   }
 
   // ─── Render ──────────────────────────────────────────────────
@@ -823,68 +759,52 @@ export class ContraEngine {
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
 
-    // Sky gradient
+    // Sky
     const grad = ctx.createLinearGradient(0, 0, 0, this.H);
-    grad.addColorStop(0, COLORS.sky);
-    grad.addColorStop(0.6, COLORS.skyGrad);
-    grad.addColorStop(1, '#2a1a4e');
+    grad.addColorStop(0, '#050510');
+    grad.addColorStop(0.5, '#0a0a2e');
+    grad.addColorStop(1, '#1a1040');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, this.W, this.H);
 
-    // Stars (parallax)
-    this.stars.forEach(s => {
-      const sx = s.x - this.cameraX * 0.1;
-      const wrapped = ((sx % this.W) + this.W) % this.W;
-      const alpha = 0.3 + 0.7 * Math.abs(Math.sin(performance.now() / 1000 + s.brightness * 10));
-      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
-      ctx.fillRect(wrapped, s.y, s.size, s.size);
-    });
-
-    // Background image (parallax)
+    // Parallax background
     if (this.bgLoaded && this.bgImage) {
+      ctx.globalAlpha = 0.3;
       const bgX = -this.cameraX * 0.3;
-      ctx.globalAlpha = 0.6;
-      ctx.drawImage(this.bgImage, bgX, 100, this.W * 1.5, 500);
-      ctx.drawImage(this.bgImage, bgX + this.W * 1.5, 100, this.W * 1.5, 500);
+      ctx.drawImage(this.bgImage, bgX, 0, this.W * 1.5, this.H * 0.8);
       ctx.globalAlpha = 1;
     }
 
-    // Camera transform
     ctx.save();
     ctx.translate(-this.cameraX, 0);
 
     // Platforms
-    this.platforms.forEach(pl => this.drawPlatform(pl));
-
-    // Power-ups
-    this.powerUps.forEach(pu => {
-      if (!pu.active) return;
-      this.drawPowerUp(pu);
-    });
-
-    // Enemies
-    this.enemies.forEach(e => {
-      if (!e.active) return;
-      this.drawEnemy(e);
+    this.platforms.forEach(plat => {
+      ctx.fillStyle = COLORS.platform;
+      ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+      ctx.fillStyle = '#4a3a2a';
+      ctx.fillRect(plat.x, plat.y, plat.w, 3);
     });
 
     // Players
     this.players.forEach(p => this.drawPlayer(p));
 
+    // Enemies
+    this.enemies.forEach(e => { if (e.active) this.drawEnemy(e); });
+    if (this.boss && this.boss.active) this.drawBoss(this.boss);
+
     // Bullets
     this.bullets.forEach(b => {
       if (!b.active) return;
-      this.drawBullet(b);
+      ctx.fillStyle = b.owner === 'player' ? '#ffff00' : '#ff6600';
+      ctx.fillRect(b.pos.x - b.w / 2, b.pos.y - b.h / 2, b.w, b.h);
+      // Trail
+      b.trail.forEach((t, i) => {
+        ctx.globalAlpha = i / b.trail.length * 0.5;
+        ctx.fillRect(t.x - 2, t.y - 2, 4, 4);
+      });
+      ctx.globalAlpha = 1;
     });
-
-    // Particles
-    this.particles.forEach(p => {
-      const alpha = p.life / p.maxLife;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = p.color;
-      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
-    });
-    ctx.globalAlpha = 1;
 
     // Explosions
     this.explosions.forEach(ex => {
@@ -893,359 +813,140 @@ export class ContraEngine {
       grad.addColorStop(0, `rgba(255,255,200,${alpha})`);
       grad.addColorStop(0.3, `rgba(255,150,50,${alpha * 0.8})`);
       grad.addColorStop(0.7, `rgba(255,50,0,${alpha * 0.4})`);
-      grad.addColorStop(1, `rgba(100,0,0,0)`);
+      grad.addColorStop(1, 'rgba(100,0,0,0)');
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(ex.x, ex.y, ex.radius, 0, Math.PI * 2);
       ctx.fill();
     });
 
+    // Particles
+    this.particles.forEach(p => {
+      ctx.globalAlpha = p.life / p.maxLife;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    });
+    ctx.globalAlpha = 1;
+
     ctx.restore();
 
     // HUD
     this.drawHUD();
-  }
 
-  private drawPlatform(pl: Platform): void {
-    const ctx = this.ctx;
-    const colors = {
-      stone: { top: COLORS.stoneLight, mid: COLORS.stone, bot: COLORS.stoneDark },
-      metal: { top: COLORS.metalLight, mid: COLORS.metal, bot: '#334455' },
-      sand: { top: COLORS.sandLight, mid: COLORS.sand, bot: '#a48340' },
-    }[pl.type];
-
-    // Main body
-    ctx.fillStyle = colors.mid;
-    ctx.fillRect(pl.x, pl.y, pl.w, pl.h);
-
-    // Top edge highlight
-    ctx.fillStyle = colors.top;
-    ctx.fillRect(pl.x, pl.y, pl.w, 4);
-
-    // Bottom shadow
-    ctx.fillStyle = colors.bot;
-    ctx.fillRect(pl.x, pl.y + pl.h - 4, pl.w, 4);
-
-    // Brick pattern for stone
-    if (pl.type === 'stone' && pl.h > 30) {
-      ctx.strokeStyle = colors.bot;
-      ctx.lineWidth = 1;
-      for (let y = pl.y + 20; y < pl.y + pl.h; y += 20) {
-        ctx.beginPath();
-        ctx.moveTo(pl.x, y);
-        ctx.lineTo(pl.x + pl.w, y);
-        ctx.stroke();
-      }
-      for (let x = pl.x; x < pl.x + pl.w; x += 40) {
-        const offset = ((x - pl.x) / 40 % 2) * 20;
-        for (let y = pl.y; y < pl.y + pl.h; y += 40) {
-          ctx.beginPath();
-          ctx.moveTo(x + offset, y);
-          ctx.lineTo(x + offset, y + 20);
-          ctx.stroke();
-        }
-      }
-    }
-
-    // Metal rivets
-    if (pl.type === 'metal') {
-      ctx.fillStyle = '#99aabb';
-      for (let x = pl.x + 10; x < pl.x + pl.w; x += 30) {
-        ctx.beginPath();
-        ctx.arc(x, pl.y + pl.h / 2, 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    if (this.gameOver) {
+      this.drawGameOver();
     }
   }
 
   private drawPlayer(p: ContraPlayer): void {
     const ctx = this.ctx;
-    if (p.invTimer > 0 && Math.floor(p.invTimer * 10) % 2 === 0) return;
-
-    const x = p.pos.x;
-    const y = p.pos.y;
-    const f = p.facing;
-
-    // Body color based on character
-    const bodyColor = {
-      tealc: '#3a3a4a',
-      oneill: '#2a4a2a',
-      carter: '#2a3a5a',
-      jackson: '#4a3a2a',
-    }[p.character];
-
-    const skinColor = p.character === 'tealc' ? '#8b6914' : '#deb887';
-
-    // Legs (animated)
-    const legOffset = p.onGround && Math.abs(p.vel.x) > 0.5 ? Math.sin(p.animFrame * Math.PI / 2) * 6 : 0;
-    ctx.fillStyle = bodyColor;
-    ctx.fillRect(x + 6, y + 30, 7, 14);
-    ctx.fillRect(x + 15, y + 30, 7, 14);
-    // Leg animation
-    if (Math.abs(p.vel.x) > 0.5 && p.onGround) {
-      ctx.fillRect(x + 6 + legOffset, y + 38, 7, 6);
-      ctx.fillRect(x + 15 - legOffset, y + 38, 7, 6);
-    }
-
-    // Torso
-    ctx.fillStyle = bodyColor;
-    ctx.fillRect(x + 4, y + 14, 20, 18);
-
-    // Armor highlight
-    ctx.fillStyle = 'rgba(255,255,255,0.1)';
-    ctx.fillRect(x + 4, y + 14, 20, 3);
-
-    // Head
-    ctx.fillStyle = skinColor;
-    ctx.fillRect(x + 8, y + 2, 12, 12);
-
-    // Teal'c gold emblem
-    if (p.character === 'tealc') {
-      ctx.fillStyle = COLORS.gold;
-      ctx.fillRect(x + 12, y + 2, 4, 3);
-    }
-
-    // Eyes
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(x + (f === 1 ? 14 : 10), y + 6, 3, 3);
-    ctx.fillStyle = '#000';
-    ctx.fillRect(x + (f === 1 ? 15 : 11), y + 7, 2, 2);
-
-    // Weapon
-    ctx.fillStyle = '#666';
-    const gunX = x + p.w / 2 + Math.cos(p.aimAngle) * 12;
-    const gunY = y + p.h / 3 + Math.sin(p.aimAngle) * 12;
-    ctx.save();
-    ctx.translate(gunX, gunY);
-    ctx.rotate(p.aimAngle);
-    ctx.fillRect(-2, -2, 16, 4);
-    ctx.fillStyle = '#888';
-    ctx.fillRect(10, -3, 6, 6);
-    ctx.restore();
-
-    // Weapon glow
-    if (p.weaponType !== 'default') {
-      const glowColor = p.weaponType === 'spread' ? '#ff6600' : p.weaponType === 'rapid' ? '#ffff00' : '#00ffff';
-      ctx.fillStyle = glowColor;
-      ctx.globalAlpha = 0.3 + Math.sin(performance.now() / 100) * 0.2;
+    
+    // Shield effect
+    if (p.shieldActive) {
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = COLORS.shield;
+      ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.arc(gunX + 8, gunY, 8, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.arc(p.pos.x + p.w / 2, p.pos.y + p.h / 2, p.w, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.globalAlpha = 1;
     }
+
+    // Invincibility flash
+    if (p.invTimer > 0 && Math.floor(p.invTimer * 10) % 2 === 0) return;
+
+    // Body
+    const colors = {
+      tealc: { body: '#8b7355', armor: '#997722' },
+      oneill: { body: '#4a4a4a', armor: '#2a2a2a' },
+      carter: { body: '#4a4a4a', armor: '#2a2a2a' },
+      jackson: { body: '#4a4a4a', armor: '#2a2a2a' },
+    }[p.character];
+
+    ctx.fillStyle = colors.body;
+    ctx.fillRect(p.pos.x + 8, p.pos.y + 8, 8, 16);
+
+    // Armor
+    ctx.fillStyle = colors.armor;
+    ctx.fillRect(p.pos.x + 6, p.pos.y + 8, 12, 4);
+
+    // Head
+    ctx.fillStyle = '#d4a574';
+    ctx.fillRect(p.pos.x + 8, p.pos.y, 8, 8);
+
+    // Weapon indicator
+    const weaponColor = p.currentWeapon === 0 ? '#cccccc' : '#ffaa00';
+    ctx.fillStyle = weaponColor;
+    ctx.fillRect(p.pos.x + (p.facing === 1 ? 16 : 0), p.pos.y + 12, 8, 3);
   }
 
   private drawEnemy(e: Enemy): void {
     const ctx = this.ctx;
-    const x = e.pos.x;
-    const y = e.pos.y;
 
-    if (e.type === 'boss') {
-      this.drawBoss(e);
-      return;
-    }
-
-    // Colors based on type
-    const colors = {
-      jaffa: { body: COLORS.jaffa, armor: COLORS.jaffaArmor, helm: '#bb9933' },
-      elite: { body: COLORS.elite, armor: COLORS.eliteArmor, helm: '#cc5511' },
-      kull: { body: COLORS.kull, armor: '#223344', helm: '#445566' },
-    }[e.type];
-
-    // Body
-    ctx.fillStyle = colors.body;
-    ctx.fillRect(x + 4, y + 14, 20, 18);
-
-    // Armor plates
-    ctx.fillStyle = colors.armor;
-    ctx.fillRect(x + 2, y + 14, 24, 4);
-    ctx.fillRect(x + 6, y + 26, 16, 4);
-
-    // Legs
-    ctx.fillStyle = colors.body;
-    ctx.fillRect(x + 6, y + 30, 7, 14);
-    ctx.fillRect(x + 15, y + 30, 7, 14);
-
-    // Head/Helmet
-    ctx.fillStyle = colors.helm;
-    ctx.fillRect(x + 6, y, 16, 14);
-
-    // Jaffa helmet detail (serpent guard)
-    if (e.type === 'jaffa' || e.type === 'elite') {
-      ctx.fillStyle = COLORS.gold;
-      ctx.fillRect(x + 10, y - 4, 8, 6);
-      ctx.fillRect(x + 12, y - 6, 4, 4);
-    }
-
-    // Kull visor
-    if (e.type === 'kull') {
-      ctx.fillStyle = COLORS.kullGlow;
-      ctx.fillRect(x + 8, y + 4, 12, 4);
-      // Glow effect
-      ctx.globalAlpha = 0.3 + Math.sin(performance.now() / 200) * 0.2;
-      ctx.fillStyle = COLORS.kullGlow;
-      ctx.beginPath();
-      ctx.arc(x + 14, y + 6, 10, 0, Math.PI * 2);
-      ctx.fill();
+    if (e.hitFlash > 0) {
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(e.pos.x, e.pos.y, e.w, e.h);
       ctx.globalAlpha = 1;
     }
 
-    // Eyes
-    if (e.type !== 'kull') {
-      ctx.fillStyle = '#ff0';
-      ctx.fillRect(x + (e.facing === 1 ? 16 : 8), y + 5, 3, 3);
-    }
+    const colors = {
+      jaffa: { body: COLORS.jaffa, armor: '#997722' },
+      elite: { body: COLORS.elite, armor: '#bb4411' },
+      kull: { body: COLORS.kull, armor: '#334455' },
+    }[e.type];
 
-    // Staff weapon
-    ctx.fillStyle = '#666';
-    const gunDir = e.facing;
-    ctx.fillRect(x + (gunDir === 1 ? 20 : -10), y + 16, 14, 3);
-    ctx.fillStyle = '#ff6600';
-    ctx.fillRect(x + (gunDir === 1 ? 32 : -12), y + 14, 4, 7);
+    ctx.fillStyle = colors.body;
+    ctx.fillRect(e.pos.x + 8, e.pos.y + 8, 8, 16);
+    ctx.fillStyle = colors.armor;
+    ctx.fillRect(e.pos.x + 6, e.pos.y + 8, 12, 4);
+    ctx.fillStyle = '#bb9933';
+    ctx.fillRect(e.pos.x + 8, e.pos.y, 8, 8);
 
-    // Health bar for tough enemies
-    if (e.maxHp > 2 && e.hp < e.maxHp) {
+    // Health bar
+    if (e.hp < e.maxHp) {
       ctx.fillStyle = COLORS.healthBg;
-      ctx.fillRect(x, y - 8, e.w, 4);
+      ctx.fillRect(e.pos.x, e.pos.y - 8, e.w, 4);
       ctx.fillStyle = COLORS.health;
-      ctx.fillRect(x, y - 8, e.w * (e.hp / e.maxHp), 4);
+      ctx.fillRect(e.pos.x, e.pos.y - 8, e.w * (e.hp / e.maxHp), 4);
     }
   }
 
   private drawBoss(e: Enemy): void {
     const ctx = this.ctx;
-    const x = e.pos.x;
-    const y = e.pos.y;
-    const pulse = Math.sin(performance.now() / 200);
 
-    // Glow aura
-    ctx.globalAlpha = 0.2 + pulse * 0.1;
-    ctx.fillStyle = COLORS.bossGlow;
-    ctx.beginPath();
-    ctx.arc(x + e.w / 2, y + e.h / 2, 60, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    // Main body - Goa'uld sarcophagus/throne style
-    ctx.fillStyle = COLORS.boss;
-    ctx.fillRect(x + 10, y + 10, 60, 60);
-
-    // Gold trim
-    ctx.fillStyle = COLORS.gold;
-    ctx.fillRect(x + 8, y + 8, 64, 4);
-    ctx.fillRect(x + 8, y + 66, 64, 4);
-    ctx.fillRect(x + 8, y + 8, 4, 62);
-    ctx.fillRect(x + 68, y + 8, 4, 62);
-
-    // Eye of Ra
-    ctx.fillStyle = COLORS.bossGlow;
-    ctx.beginPath();
-    ctx.arc(x + 40, y + 35, 12 + pulse * 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(x + 40, y + 35, 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.arc(x + 40, y + 35, 3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Hieroglyphs
-    ctx.fillStyle = COLORS.gold;
-    ctx.globalAlpha = 0.5;
-    for (let i = 0; i < 4; i++) {
-      ctx.fillRect(x + 16 + i * 14, y + 52, 8, 10);
-    }
-    ctx.globalAlpha = 1;
-
-    // Health bar
-    ctx.fillStyle = COLORS.healthBg;
-    ctx.fillRect(x - 10, y - 20, 100, 8);
-    ctx.fillStyle = e.hp > e.maxHp * 0.3 ? '#ff6600' : '#ff0000';
-    ctx.fillRect(x - 10, y - 20, 100 * (e.hp / e.maxHp), 8);
-    ctx.strokeStyle = COLORS.gold;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x - 10, y - 20, 100, 8);
-
-    // Boss name
-    ctx.fillStyle = COLORS.gold;
-    ctx.font = 'bold 12px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('APOPHIS', x + e.w / 2, y - 24);
-    ctx.textAlign = 'left';
-  }
-
-  private drawBullet(b: Bullet): void {
-    const ctx = this.ctx;
-
-    // Trail
-    if (b.trail.length > 1) {
-      ctx.globalAlpha = 0.3;
-      ctx.strokeStyle = b.color;
-      ctx.lineWidth = b.h;
-      ctx.beginPath();
-      ctx.moveTo(b.trail[0].x, b.trail[0].y);
-      b.trail.forEach(t => ctx.lineTo(t.x, t.y));
-      ctx.stroke();
+    if (e.hitFlash > 0) {
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(e.pos.x, e.pos.y, e.w, e.h);
       ctx.globalAlpha = 1;
     }
 
-    // Bullet body
-    ctx.fillStyle = b.color;
-    ctx.fillRect(b.pos.x - b.w / 2, b.pos.y - b.h / 2, b.w, b.h);
-
+    ctx.fillStyle = COLORS.kull;
+    ctx.fillRect(e.pos.x + 12, e.pos.y + 16, 24, 40);
+    ctx.fillStyle = '#334455';
+    ctx.fillRect(e.pos.x + 8, e.pos.y + 16, 32, 8);
+    ctx.fillStyle = '#556677';
+    ctx.fillRect(e.pos.x + 12, e.pos.y, 24, 16);
+    
     // Glow
-    ctx.globalAlpha = 0.4;
-    ctx.fillStyle = b.color;
-    ctx.beginPath();
-    ctx.arc(b.pos.x, b.pos.y, b.w, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    ctx.fillStyle = COLORS.kullGlow;
+    ctx.fillRect(e.pos.x + 16, e.pos.y + 6, 16, 6);
+
+    // Boss health bar
+    ctx.fillStyle = COLORS.healthBg;
+    ctx.fillRect(e.pos.x, e.pos.y - 16, e.w, 6);
+    ctx.fillStyle = COLORS.health;
+    ctx.fillRect(e.pos.x, e.pos.y - 16, e.w * (e.hp / e.maxHp), 6);
   }
 
-  private drawPowerUp(pu: PowerUp): void {
-    const ctx = this.ctx;
-    const bob = Math.sin(pu.animTimer) * 4;
-    const x = pu.pos.x;
-    const y = pu.pos.y + bob;
-
-    // Glow
-    ctx.globalAlpha = 0.3;
-    const glowColor = {
-      spread: '#ff6600', rapid: '#ffff00', laser: '#00ffff',
-      health: '#ff0000', life: '#00ff00',
-    }[pu.type];
-    ctx.fillStyle = glowColor;
-    ctx.beginPath();
-    ctx.arc(x + 12, y + 12, 16, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
-    // Box
-    ctx.fillStyle = '#333';
-    ctx.fillRect(x, y, 24, 24);
-    ctx.strokeStyle = glowColor;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, 24, 24);
-
-    // Icon
-    ctx.fillStyle = glowColor;
-    ctx.font = 'bold 14px monospace';
-    ctx.textAlign = 'center';
-    const icon = { spread: 'S', rapid: 'R', laser: 'L', health: '+', life: '♥' }[pu.type];
-    ctx.fillText(icon, x + 12, y + 17);
-    ctx.textAlign = 'left';
-  }
-
-  // ─── HUD ─────────────────────────────────────────────────────
   private drawHUD(): void {
     const ctx = this.ctx;
 
-    // HUD background bar
+    // HUD background
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.fillRect(0, 0, this.W, 60);
-    ctx.fillStyle = 'rgba(0,100,200,0.3)';
+    ctx.fillStyle = 'rgba(100,0,200,0.3)';
     ctx.fillRect(0, 58, this.W, 2);
 
     // Score
@@ -1256,83 +957,85 @@ export class ContraEngine {
     ctx.font = 'bold 18px "Press Start 2P", monospace';
     ctx.fillText(String(this.score).padStart(8, '0'), 20, 46);
 
-    // Player info
-    if (this.players.length > 0) {
-      const p = this.players[0];
+    // Level
+    ctx.fillStyle = COLORS.gold;
+    ctx.font = 'bold 14px "Press Start 2P", monospace';
+    ctx.fillText('LEVEL', 280, 22);
+    ctx.fillStyle = COLORS.text;
+    ctx.font = 'bold 18px "Press Start 2P", monospace';
+    ctx.fillText(`${this.currentLevel}/2`, 280, 46);
 
-      // Character name
+    // Players
+    this.players.forEach((p, i) => {
+      const x = 500 + i * 350;
       ctx.fillStyle = COLORS.gold;
-      ctx.font = 'bold 14px "Press Start 2P", monospace';
-      ctx.fillText(CHARACTER_STATS[p.character].name.toUpperCase(), 250, 22);
-
-      // Health bar
-      ctx.fillStyle = COLORS.healthBg;
-      ctx.fillRect(250, 30, 150, 16);
-      const hpRatio = p.hp / p.maxHp;
-      ctx.fillStyle = hpRatio > 0.5 ? '#00cc00' : hpRatio > 0.25 ? '#cccc00' : '#cc0000';
-      ctx.fillRect(250, 30, 150 * hpRatio, 16);
-      ctx.strokeStyle = '#666';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(250, 30, 150, 16);
-
+      ctx.font = 'bold 12px "Press Start 2P", monospace';
+      ctx.fillText(`P${i + 1}`, x, 22);
+      
       // Lives
       ctx.fillStyle = COLORS.health;
-      ctx.font = '14px "Press Start 2P", monospace';
-      for (let i = 0; i < p.lives; i++) {
-        ctx.fillText('♥', 420 + i * 22, 46);
+      for (let j = 0; j < p.lives; j++) {
+        ctx.fillRect(x + j * 16, 28, 12, 12);
       }
+
+      // HP bar
+      ctx.fillStyle = COLORS.healthBg;
+      ctx.fillRect(x, 44, 100, 8);
+      ctx.fillStyle = COLORS.health;
+      ctx.fillRect(x, 44, 100 * (p.hp / p.maxHp), 8);
+
+      // Shield bar
+      ctx.fillStyle = 'rgba(68,136,255,0.3)';
+      ctx.fillRect(x + 110, 44, 60, 8);
+      ctx.fillStyle = COLORS.shield;
+      ctx.fillRect(x + 110, 44, 60 * (p.shieldEnergy / p.maxShieldEnergy), 8);
 
       // Weapon indicator
-      if (p.weaponType !== 'default') {
-        const wColor = p.weaponType === 'spread' ? '#ff6600' : p.weaponType === 'rapid' ? '#ffff00' : '#00ffff';
-        ctx.fillStyle = wColor;
-        ctx.font = 'bold 12px "Press Start 2P", monospace';
-        ctx.fillText(p.weaponType.toUpperCase(), 530, 22);
-        // Timer bar
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.fillRect(530, 30, 80, 10);
-        ctx.fillStyle = wColor;
-        ctx.fillRect(530, 30, 80 * (p.weaponTimer / 15), 10);
-      }
-    }
-
-    // Wave indicator
-    ctx.fillStyle = COLORS.text;
-    ctx.font = '12px "Press Start 2P", monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText('LEVEL 1', this.W - 20, 22);
-    ctx.fillStyle = '#888';
-    ctx.fillText('CHULAK', this.W - 20, 42);
-    ctx.textAlign = 'left';
-
-    // Game over / Victory overlay
-    if (this.gameOver) {
-      ctx.fillStyle = 'rgba(0,0,0,0.8)';
-      ctx.fillRect(0, 0, this.W, this.H);
-
-      if (this.victory) {
-        ctx.fillStyle = COLORS.gold;
-        ctx.font = 'bold 48px "Press Start 2P", monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText('VICTORY!', this.W / 2, this.H / 2 - 30);
-        ctx.fillStyle = COLORS.text;
-        ctx.font = '18px "Press Start 2P", monospace';
-        ctx.fillText('APOPHIS DEFEATED', this.W / 2, this.H / 2 + 20);
-        ctx.fillText(`FINAL SCORE: ${this.score}`, this.W / 2, this.H / 2 + 60);
-      } else {
-        ctx.fillStyle = COLORS.health;
-        ctx.font = 'bold 48px "Press Start 2P", monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText('GAME OVER', this.W / 2, this.H / 2 - 30);
-        ctx.fillStyle = COLORS.text;
-        ctx.font = '18px "Press Start 2P", monospace';
-        ctx.fillText(`FINAL SCORE: ${this.score}`, this.W / 2, this.H / 2 + 20);
-      }
-
       ctx.fillStyle = '#888';
-      ctx.font = '14px "Press Start 2P", monospace';
-      ctx.fillText('PRESS R TO RESTART', this.W / 2, this.H / 2 + 80);
-      ctx.textAlign = 'left';
+      ctx.font = '8px "Press Start 2P", monospace';
+      const weaponName = p.currentWeapon === 0 
+        ? (p.character === 'tealc' ? 'FIST' : 'KNIFE')
+        : (p.character === 'tealc' ? 'STAFF' : 'P90');
+      ctx.fillText(weaponName, x + 180, 50);
+    });
+
+    // Controls hint
+    ctx.fillStyle = '#666';
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('SPACE:SHOOT | CTRL:MELEE | ALT:RANGED | SHIFT:SHIELD', this.W - 20, 50);
+    ctx.textAlign = 'left';
+  }
+
+  private drawGameOver(): void {
+    const ctx = this.ctx;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(0, 0, this.W, this.H);
+
+    ctx.textAlign = 'center';
+
+    if (this.victory) {
+      ctx.fillStyle = COLORS.gold;
+      ctx.font = 'bold 48px "Press Start 2P", monospace';
+      ctx.fillText('VICTORY!', this.W / 2, this.H / 2 - 40);
+      ctx.fillStyle = COLORS.text;
+      ctx.font = '16px "Press Start 2P", monospace';
+      ctx.fillText('MISSION COMPLETE', this.W / 2, this.H / 2 + 10);
+    } else {
+      ctx.fillStyle = COLORS.health;
+      ctx.font = 'bold 48px "Press Start 2P", monospace';
+      ctx.fillText('GAME OVER', this.W / 2, this.H / 2 - 40);
     }
+
+    ctx.fillStyle = COLORS.text;
+    ctx.font = '18px "Press Start 2P", monospace';
+    ctx.fillText(`FINAL SCORE: ${this.score}`, this.W / 2, this.H / 2 + 50);
+
+    ctx.fillStyle = '#888';
+    ctx.font = '14px "Press Start 2P", monospace';
+    ctx.fillText('PRESS R TO RESTART', this.W / 2, this.H / 2 + 120);
+
+    ctx.textAlign = 'left';
   }
 }

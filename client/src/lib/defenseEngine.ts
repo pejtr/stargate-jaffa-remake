@@ -1,4 +1,5 @@
 import { GAME_ASSETS, CHARACTER_STATS, type CharacterType } from './gameAssets';
+import { playShoot, playHit, playExplosion, playBrickDestroy, playWaveStart } from './audioEngine';
 
 // ─── Types ───────────────────────────────────────────────────────
 interface Vec2 { x: number; y: number }
@@ -30,6 +31,7 @@ interface DefenseEnemy {
   facing: 1 | -1;
   angle: number; // approach angle
   hitFlash: number;
+  size: number; // Scale multiplier
 }
 
 interface Crosshair {
@@ -51,7 +53,9 @@ const COLORS = {
   brickCrack: '#3a2a08',
   mortar: '#4a3a10',
   jaffa: '#cc8833',
+  jaffaArmor: '#997722',
   elite: '#dd6622',
+  eliteArmor: '#bb4411',
   kull: '#445566',
   kullGlow: '#6688ff',
   crosshair: '#00ff44',
@@ -98,11 +102,9 @@ export class DefenseEngine {
   private stargateLoaded = false;
 
   // Constants
-  private readonly BRICK_COLS = 10;
-  private readonly BRICK_ROWS = 5;
-  private readonly BRICK_W = 80;
-  private readonly BRICK_H = 28;
-  private readonly WALL_Y = 560; // Bottom of screen
+  private readonly BRICK_W = 64;
+  private readonly BRICK_H = 24;
+  private readonly WALL_Y_START = 600; // Start from bottom
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -129,19 +131,19 @@ export class DefenseEngine {
 
   private initBricks(): void {
     this.bricks = [];
-    const totalW = this.BRICK_COLS * this.BRICK_W;
-    const startX = (this.W - totalW) / 2;
+    const cols = Math.floor(this.W / this.BRICK_W);
+    const rows = 5;
 
-    for (let row = 0; row < this.BRICK_ROWS; row++) {
-      for (let col = 0; col < this.BRICK_COLS; col++) {
-        // Offset every other row for brick pattern
-        const offset = row % 2 === 0 ? 0 : this.BRICK_W / 2;
-        const actualCols = row % 2 === 0 ? this.BRICK_COLS : this.BRICK_COLS - 1;
-        if (row % 2 !== 0 && col >= actualCols) continue;
+    for (let row = 0; row < rows; row++) {
+      const y = this.WALL_Y_START + row * this.BRICK_H;
+      // Offset every other row for brick pattern
+      const offset = row % 2 === 0 ? 0 : this.BRICK_W / 2;
+      const actualCols = row % 2 === 0 ? cols : cols - 1;
 
+      for (let col = 0; col < actualCols; col++) {
         this.bricks.push({
-          x: startX + col * this.BRICK_W + offset,
-          y: this.WALL_Y + row * this.BRICK_H,
+          x: col * this.BRICK_W + offset,
+          y,
           w: this.BRICK_W - 2,
           h: this.BRICK_H - 2,
           hp: 3,
@@ -167,7 +169,10 @@ export class DefenseEngine {
     this.canvas.addEventListener('click', () => this.handleShoot());
     
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Control') this.handleShoot();
+      if (e.key === ' ') {
+        e.preventDefault();
+        this.handleShoot();
+      }
       if (e.key === 'r' || e.key === 'R') {
         if (this.gameOver) {
           this.reset();
@@ -184,6 +189,8 @@ export class DefenseEngine {
   private handleShoot(): void {
     if (this.gameOver) return;
 
+    playShoot();
+
     let hit = false;
     // Check from front to back (last spawned first)
     for (let i = this.enemies.length - 1; i >= 0; i--) {
@@ -192,11 +199,12 @@ export class DefenseEngine {
 
       const dx = this.crosshair.x - e.pos.x;
       const dy = this.crosshair.y - e.pos.y;
-      const hitRadius = e.type === 'kull' ? 28 : 22;
+      const hitRadius = e.size * (e.type === 'kull' ? 35 : 28);
       
       if (dx * dx + dy * dy < hitRadius * hitRadius) {
         e.hp--;
         e.hitFlash = 0.15;
+        playHit();
 
         // Hit particles
         for (let j = 0; j < 8; j++) {
@@ -214,22 +222,24 @@ export class DefenseEngine {
           this.score += e.points;
           this.kills++;
 
+          playExplosion();
+
           // Death explosion
           this.explosions.push({
             x: e.pos.x, y: e.pos.y,
-            radius: 5, maxRadius: e.type === 'kull' ? 50 : 35,
+            radius: 5, maxRadius: e.type === 'kull' ? 60 : 45,
             life: 0.4, maxLife: 0.4,
           });
 
           // Death particles
           const color = e.type === 'kull' ? COLORS.kullGlow : e.type === 'elite' ? COLORS.elite : COLORS.jaffa;
-          for (let j = 0; j < 15; j++) {
+          for (let j = 0; j < 20; j++) {
             this.particles.push({
               x: e.pos.x, y: e.pos.y,
-              vx: (Math.random() - 0.5) * 10,
-              vy: (Math.random() - 0.5) * 10 - 3,
+              vx: (Math.random() - 0.5) * 12,
+              vy: (Math.random() - 0.5) * 12 - 4,
               life: 0.5 + Math.random() * 0.5, maxLife: 1,
-              color, size: 2 + Math.random() * 4,
+              color, size: 3 + Math.random() * 5,
             });
           }
         }
@@ -259,6 +269,7 @@ export class DefenseEngine {
     this.enemiesSpawnedInWave = 0;
     this.spawnTimer = 0;
     this.waveTimer = 3; // 3 second countdown
+    playWaveStart();
   }
 
   // ─── Public API ──────────────────────────────────────────────
@@ -358,7 +369,7 @@ export class DefenseEngine {
       const dy = targetY - e.pos.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      if (dist < 10) {
+      if (dist < 15) {
         // Hit the brick!
         brick.hp--;
         brick.crackLevel = Math.min(3, brick.maxHp - brick.hp);
@@ -366,16 +377,17 @@ export class DefenseEngine {
         if (brick.hp <= 0) {
           brick.active = false;
           this.destroyedBricks++;
+          playBrickDestroy();
 
           // Brick destruction particles
-          for (let i = 0; i < 10; i++) {
+          for (let i = 0; i < 12; i++) {
             this.particles.push({
               x: brick.x + brick.w / 2,
               y: brick.y + brick.h / 2,
-              vx: (Math.random() - 0.5) * 6,
-              vy: (Math.random() - 0.5) * 6,
-              life: 0.5, maxLife: 0.5,
-              color: COLORS.brick, size: 3 + Math.random() * 4,
+              vx: (Math.random() - 0.5) * 8,
+              vy: (Math.random() - 0.5) * 8 - 2,
+              life: 0.6, maxLife: 0.6,
+              color: COLORS.brick, size: 4 + Math.random() * 5,
             });
           }
 
@@ -428,14 +440,14 @@ export class DefenseEngine {
     if (side < 0.6) {
       // From top
       x = 100 + Math.random() * (this.W - 200);
-      y = -40;
+      y = -60;
     } else if (side < 0.8) {
       // From left
-      x = -40;
+      x = -60;
       y = 50 + Math.random() * 300;
     } else {
       // From right
-      x = this.W + 40;
+      x = this.W + 60;
       y = 50 + Math.random() * 300;
     }
 
@@ -446,9 +458,9 @@ export class DefenseEngine {
     if (this.wave >= 5 && rand < 0.1) type = 'kull';
 
     const data = {
-      jaffa: { speed: 1.2 + this.wave * 0.1, hp: 1, pts: 100 },
-      elite: { speed: 1.5 + this.wave * 0.1, hp: 2, pts: 250 },
-      kull: { speed: 0.8 + this.wave * 0.08, hp: 5, pts: 500 },
+      jaffa: { speed: 1.2 + this.wave * 0.1, hp: 1, pts: 100, size: 1.2 },
+      elite: { speed: 1.5 + this.wave * 0.1, hp: 2, pts: 250, size: 1.3 },
+      kull: { speed: 0.8 + this.wave * 0.08, hp: 5, pts: 500, size: 1.5 },
     }[type];
 
     // Pick random active brick as target
@@ -470,6 +482,7 @@ export class DefenseEngine {
       facing: 1,
       angle: 0,
       hitFlash: 0,
+      size: data.size,
     });
   }
 
@@ -588,71 +601,76 @@ export class DefenseEngine {
         ctx.lineTo(x + w * 0.6, y);
         ctx.stroke();
       }
+      if (brick.crackLevel >= 3) {
+        ctx.beginPath();
+        ctx.moveTo(x, y + h * 0.5);
+        ctx.lineTo(x + w, y + h * 0.5);
+        ctx.stroke();
+      }
     }
   }
 
   private drawDefenseEnemy(e: DefenseEnemy): void {
     const ctx = this.ctx;
     const { x, y } = e.pos;
+    const s = e.size;
 
     // Hit flash
     if (e.hitFlash > 0) {
       ctx.globalAlpha = 0.5;
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.arc(x, y, 25, 0, Math.PI * 2);
+      ctx.arc(x, y, 30 * s, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
 
     const colors = {
-      jaffa: { body: COLORS.jaffa, helm: '#bb9933', armor: '#997722' },
-      elite: { body: COLORS.elite, helm: '#cc5511', armor: '#bb4411' },
-      kull: { body: COLORS.kull, helm: '#556677', armor: '#334455' },
+      jaffa: { body: COLORS.jaffa, armor: COLORS.jaffaArmor, helm: '#bb9933' },
+      elite: { body: COLORS.elite, armor: COLORS.eliteArmor, helm: '#cc5511' },
+      kull: { body: COLORS.kull, armor: '#334455', helm: '#556677' },
     }[e.type];
-
-    // Body
-    ctx.fillStyle = colors.body;
-    ctx.fillRect(x - 10, y - 5, 20, 18);
-
-    // Armor
-    ctx.fillStyle = colors.armor;
-    ctx.fillRect(x - 12, y - 5, 24, 4);
 
     // Legs
     ctx.fillStyle = colors.body;
-    const legAnim = Math.sin(e.animFrame * Math.PI / 2) * 3;
-    ctx.fillRect(x - 8 + legAnim, y + 13, 6, 10);
-    ctx.fillRect(x + 2 - legAnim, y + 13, 6, 10);
+    const legAnim = Math.sin(e.animFrame * Math.PI / 2) * 4 * s;
+    ctx.fillRect(x - 10 * s + legAnim, y + 18 * s, 8 * s, 14 * s);
+    ctx.fillRect(x + 2 * s - legAnim, y + 18 * s, 8 * s, 14 * s);
+
+    // Body
+    ctx.fillStyle = colors.body;
+    ctx.fillRect(x - 12 * s, y - 6 * s, 24 * s, 24 * s);
+
+    // Armor plates
+    ctx.fillStyle = colors.armor;
+    ctx.fillRect(x - 14 * s, y - 6 * s, 28 * s, 5 * s);
+    ctx.fillRect(x - 10 * s, y + 10 * s, 20 * s, 5 * s);
 
     // Helmet
     ctx.fillStyle = colors.helm;
-    ctx.fillRect(x - 8, y - 18, 16, 14);
+    ctx.fillRect(x - 10 * s, y - 24 * s, 20 * s, 18 * s);
 
     // Serpent guard crest
     if (e.type === 'jaffa' || e.type === 'elite') {
       ctx.fillStyle = COLORS.gold;
-      ctx.fillRect(x - 3, y - 24, 6, 8);
-      ctx.fillRect(x - 5, y - 22, 10, 4);
+      ctx.fillRect(x - 4 * s, y - 32 * s, 8 * s, 10 * s);
+      ctx.fillRect(x - 6 * s, y - 30 * s, 12 * s, 6 * s);
+      // Eyes
+      ctx.fillStyle = '#ff0';
+      ctx.fillRect(x - 6 * s, y - 18 * s, 4 * s, 4 * s);
+      ctx.fillRect(x + 2 * s, y - 18 * s, 4 * s, 4 * s);
     }
 
     // Kull visor glow
     if (e.type === 'kull') {
       ctx.fillStyle = COLORS.kullGlow;
-      ctx.fillRect(x - 6, y - 13, 12, 4);
+      ctx.fillRect(x - 8 * s, y - 18 * s, 16 * s, 5 * s);
       ctx.globalAlpha = 0.3 + Math.sin(performance.now() / 150) * 0.2;
       ctx.fillStyle = COLORS.kullGlow;
       ctx.beginPath();
-      ctx.arc(x, y - 11, 12, 0, Math.PI * 2);
+      ctx.arc(x, y - 15 * s, 14 * s, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
-    }
-
-    // Eyes
-    if (e.type !== 'kull') {
-      ctx.fillStyle = '#ff0';
-      ctx.fillRect(x - 4, y - 13, 3, 3);
-      ctx.fillRect(x + 2, y - 13, 3, 3);
     }
 
     // Staff weapon
@@ -660,17 +678,17 @@ export class DefenseEngine {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(e.angle + Math.PI / 2);
-    ctx.fillRect(-2, 5, 4, 20);
+    ctx.fillRect(-3 * s, 6 * s, 6 * s, 26 * s);
     ctx.fillStyle = '#ff6600';
-    ctx.fillRect(-3, 22, 6, 6);
+    ctx.fillRect(-4 * s, 30 * s, 8 * s, 8 * s);
     ctx.restore();
 
     // Health bar for tough enemies
     if (e.maxHp > 1 && e.hp < e.maxHp) {
       ctx.fillStyle = COLORS.healthBg;
-      ctx.fillRect(x - 15, y - 30, 30, 4);
+      ctx.fillRect(x - 20 * s, y - 40 * s, 40 * s, 5);
       ctx.fillStyle = COLORS.health;
-      ctx.fillRect(x - 15, y - 30, 30 * (e.hp / e.maxHp), 4);
+      ctx.fillRect(x - 20 * s, y - 40 * s, 40 * s * (e.hp / e.maxHp), 5);
     }
   }
 
@@ -684,11 +702,11 @@ export class DefenseEngine {
       if (!e.active) continue;
       const dx = x - e.pos.x;
       const dy = y - e.pos.y;
-      if (dx * dx + dy * dy < 25 * 25) { onEnemy = true; break; }
+      if (dx * dx + dy * dy < 30 * 30 * e.size * e.size) { onEnemy = true; break; }
     }
 
     const color = onEnemy ? COLORS.crosshairHot : COLORS.crosshair;
-    const size = onEnemy ? 18 : 15;
+    const size = onEnemy ? 20 : 16;
 
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
@@ -700,14 +718,14 @@ export class DefenseEngine {
 
     // Cross lines
     ctx.beginPath();
-    ctx.moveTo(x - size - 5, y);
-    ctx.lineTo(x - 5, y);
-    ctx.moveTo(x + 5, y);
-    ctx.lineTo(x + size + 5, y);
-    ctx.moveTo(x, y - size - 5);
-    ctx.lineTo(x, y - 5);
-    ctx.moveTo(x, y + 5);
-    ctx.lineTo(x, y + size + 5);
+    ctx.moveTo(x - size - 6, y);
+    ctx.lineTo(x - 6, y);
+    ctx.moveTo(x + 6, y);
+    ctx.lineTo(x + size + 6, y);
+    ctx.moveTo(x, y - size - 6);
+    ctx.lineTo(x, y - 6);
+    ctx.moveTo(x, y + 6);
+    ctx.lineTo(x, y + size + 6);
     ctx.stroke();
 
     // Center dot
@@ -803,7 +821,7 @@ export class DefenseEngine {
     if (this.wave === 1) {
       ctx.fillStyle = '#888';
       ctx.font = '12px "Press Start 2P", monospace';
-      ctx.fillText('CLICK OR CTRL TO SHOOT', this.W / 2, this.H / 2 + 55);
+      ctx.fillText('SPACE OR CLICK TO SHOOT', this.W / 2, this.H / 2 + 55);
     }
 
     ctx.textAlign = 'left';

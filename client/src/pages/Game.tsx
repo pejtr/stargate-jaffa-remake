@@ -13,6 +13,7 @@ export default function Game() {
   const [, setLocation] = useLocation();
   const gameMode = sessionStorage.getItem('gameMode') || 'contra';
   const selectedChar = (sessionStorage.getItem('selectedCharacter') || 'oneill') as CharacterType;
+  const player2Char = (sessionStorage.getItem('player2Character') || null) as CharacterType | null;
 
   const initGame = useCallback(() => {
     const canvas = canvasRef.current;
@@ -31,7 +32,10 @@ export default function Game() {
 
     if (gameMode === 'contra') {
       const engine = new ContraEngine(canvas);
-      engine.addPlayer(selectedChar);
+      engine.addPlayer(selectedChar, 0);
+      if (player2Char) {
+        engine.addPlayer(player2Char, 1);
+      }
       contraRef.current = engine;
       engine.start();
       startMusic();
@@ -42,7 +46,7 @@ export default function Game() {
       engine.start();
       startMusic();
     }
-  }, [gameMode, selectedChar]);
+  }, [gameMode, selectedChar, player2Char]);
 
   useEffect(() => {
     initGame();
@@ -56,7 +60,10 @@ export default function Game() {
         // Restart
         if (gameMode === 'contra' && contraRef.current) {
           contraRef.current.reset();
-          contraRef.current.addPlayer(selectedChar);
+          contraRef.current.addPlayer(selectedChar, 0);
+          if (player2Char) {
+            contraRef.current.addPlayer(player2Char, 1);
+          }
         } else if (defenseRef.current) {
           defenseRef.current.reset();
           defenseRef.current.addPlayer(selectedChar);
@@ -72,12 +79,15 @@ export default function Game() {
       stopMusic();
       window.removeEventListener('keydown', handleKey);
     };
-  }, [initGame, setLocation, gameMode, selectedChar]);
+  }, [initGame, setLocation, gameMode, selectedChar, player2Char]);
 
   const handleRestart = () => {
     if (gameMode === 'contra' && contraRef.current) {
       contraRef.current.reset();
-      contraRef.current.addPlayer(selectedChar);
+      contraRef.current.addPlayer(selectedChar, 0);
+      if (player2Char) {
+        contraRef.current.addPlayer(player2Char, 1);
+      }
     } else if (defenseRef.current) {
       defenseRef.current.reset();
       defenseRef.current.addPlayer(selectedChar);
@@ -124,20 +134,21 @@ export default function Game() {
         </Button>
       </div>
 
-      <div className="mt-3 text-gray-500 text-xs text-center pixel-font space-x-6">
+      <div className="mt-3 text-gray-500 text-xs text-center pixel-font space-x-4">
         {gameMode === 'contra' ? (
           <>
-            <span>A/D: MOVE</span>
-            <span>W: JUMP</span>
-            <span>CTRL: SHOOT</span>
-            <span>↑↓: AIM</span>
-            <span>R: RESTART</span>
-            <span>ESC: EXIT</span>
+            <span>P1: WASD+SPACE</span>
+            {player2Char && <span>P2: IJKL+ENTER</span>}
+            <span>CTRL:MELEE</span>
+            <span>ALT:RANGED</span>
+            <span>SHIFT:SHIELD</span>
+            <span>R:RESTART</span>
+            <span>ESC:EXIT</span>
           </>
         ) : (
           <>
             <span>MOUSE: AIM</span>
-            <span>CLICK/CTRL: SHOOT</span>
+            <span>SPACE/CLICK: SHOOT</span>
             <span>R: RESTART</span>
             <span>ESC: EXIT</span>
           </>
