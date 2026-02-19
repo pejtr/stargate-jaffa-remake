@@ -1,5 +1,5 @@
 import { GAME_ASSETS, CHARACTER_STATS, type CharacterType } from './gameAssets';
-import { playShoot, playHit, playExplosion, playPowerUp, playDamage, playJump } from './audioEngine';
+import { playShoot, playHit, playExplosion, playPowerUp, playDamage, playJump, playBossSpawn, playBossDeath, playShieldActivate, playShieldDeactivate } from './audioEngine';
 
 // ─── Types ───────────────────────────────────────────────────────
 interface Vec2 { x: number; y: number }
@@ -23,6 +23,7 @@ interface ContraPlayer {
   shieldEnergy: number;
   maxShieldEnergy: number;
   shieldRecharge: number;
+  shieldSoundPlayed: boolean;
 }
 
 interface Enemy {
@@ -299,6 +300,7 @@ export class ContraEngine {
       shieldEnergy: 100,
       maxShieldEnergy: 100,
       shieldRecharge: 0,
+      shieldSoundPlayed: false,
     });
   }
 
@@ -359,6 +361,7 @@ export class ContraEngine {
     if (!this.bossSpawned && this.cameraX > levelData.bossX - this.W) {
       this.spawnBoss();
       this.bossSpawned = true;
+      playBossSpawn();
     }
 
     // Players
@@ -446,12 +449,20 @@ export class ContraEngine {
 
     // Shield
     if (shield && p.shieldEnergy > 0) {
+      if (!p.shieldActive && !p.shieldSoundPlayed) {
+        playShieldActivate();
+        p.shieldSoundPlayed = true;
+      }
       p.shieldActive = true;
       p.shieldEnergy -= dt * 30;
       if (p.shieldEnergy < 0) p.shieldEnergy = 0;
       p.shieldRecharge = 2; // 2s cooldown after deactivation
     } else {
+      if (p.shieldActive && p.shieldSoundPlayed) {
+        playShieldDeactivate();
+      }
       p.shieldActive = false;
+      p.shieldSoundPlayed = false;
       if (p.shieldRecharge > 0) {
         p.shieldRecharge -= dt;
       } else if (p.shieldEnergy < p.maxShieldEnergy) {
@@ -612,20 +623,28 @@ export class ContraEngine {
 
   private spawnBoss(): void {
     const levelData = LEVEL_DATA[this.currentLevel as 1 | 2 | 3];
+    
+    // Different boss for each level
+    const bossData = {
+      1: { type: 'jaffa' as const, hp: 500, w: 48, h: 64, pts: 5000 }, // Apophis
+      2: { type: 'kull' as const, hp: 800, w: 56, h: 72, pts: 10000 }, // Anubis
+      3: { type: 'replicator' as const, hp: 1000, w: 52, h: 68, pts: 15000 }, // Replicator Carter
+    }[this.currentLevel as 1 | 2 | 3];
+    
     this.boss = {
       pos: { x: levelData.bossX, y: 550 },
       vel: { x: 0, y: 0 },
-      w: 48, h: 64,
-      type: 'kull',
-      hp: 500,
-      maxHp: 500,
+      w: bossData.w, h: bossData.h,
+      type: bossData.type,
+      hp: bossData.hp,
+      maxHp: bossData.hp,
       active: true,
       facing: -1,
       animFrame: 0,
       animTimer: 0,
       shootTimer: 1,
       hitFlash: 0,
-      points: 5000,
+      points: bossData.pts,
     };
   }
 
@@ -662,25 +681,71 @@ export class ContraEngine {
   }
 
   private updateBoss(e: Enemy, dt: number): void {
-    // Boss AI: more aggressive
+    // Boss AI: unique patterns for each boss
     if (this.players.length === 0) return;
     const target = this.players[0];
     const dx = target.pos.x - e.pos.x;
     e.facing = dx > 0 ? 1 : -1;
 
-    if (Math.abs(dx) > 200) {
-      e.vel.x = e.facing * 2;
-    } else {
-      e.vel.x = 0;
+    // Apophis (Level 1): Fast movement, rapid fire
+    if (this.currentLevel === 1) {
+      if (Math.abs(dx) > 200) {
+        e.vel.x = e.facing * 3;
+      } else {
+        e.vel.x = 0;
+      }
+      e.pos.x += e.vel.x;
+      e.shootTimer -= dt;
+      if (e.shootTimer <= 0) {
+        this.enemyShoot(e);
+        e.shootTimer = 0.6; // Rapid fire
+      }
     }
-
-    e.pos.x += e.vel.x;
-
-    // Shoot faster
-    e.shootTimer -= dt;
-    if (e.shootTimer <= 0) {
-      this.enemyShoot(e);
-      e.shootTimer = 0.8;
+    // Anubis (Level 2): Teleport, triple shot
+    else if (this.currentLevel === 2) {
+      if (Math.abs(dx) > 300) {
+        e.vel.x = e.facing * 2.5;
+      } else {
+        e.vel.x = 0;
+      }
+      e.pos.x += e.vel.x;
+      e.shootTimer -= dt;
+      if (e.shootTimer <= 0) {
+        // Triple shot
+        this.enemyShoot(e);
+        const cx = e.pos.x + e.w / 2;
+        const cy = e.pos.y + e.h / 3;
+        this.bullets.push({
+          pos: { x: cx, y: cy },
+          vel: { x: e.facing * 6, y: -2 },
+          w: 8, h: 6, dmg: 15, owner: 'enemy', active: true, trail: [],
+        });
+        this.bullets.push({
+          pos: { x: cx, y: cy },
+          vel: { x: e.facing * 6, y: 2 },
+          w: 8, h: 6, dmg: 15, owner: 'enemy', active: true, trail: [],
+        });
+        e.shootTimer = 1.2;
+      }
+    }
+    // Replicator Carter (Level 3): Erratic movement, spread shot
+    else if (this.currentLevel === 3) {
+      e.vel.x = Math.sin(Date.now() / 500) * 4;
+      e.pos.x += e.vel.x;
+      e.shootTimer -= dt;
+      if (e.shootTimer <= 0) {
+        // 5-way spread shot
+        const cx = e.pos.x + e.w / 2;
+        const cy = e.pos.y + e.h / 3;
+        for (let i = -2; i <= 2; i++) {
+          this.bullets.push({
+            pos: { x: cx, y: cy },
+            vel: { x: e.facing * 5, y: i * 1.5 },
+            w: 8, h: 6, dmg: 12, owner: 'enemy', active: true, trail: [],
+          });
+        }
+        e.shootTimer = 1.5;
+      }
     }
 
     e.animTimer += dt;
@@ -747,6 +812,7 @@ export class ContraEngine {
             e.active = false;
             this.score += e.points;
             this.createExplosion(e.pos.x, e.pos.y, 80);
+            playBossDeath();
           }
         }
       }
