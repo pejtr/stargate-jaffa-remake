@@ -133,6 +133,11 @@
   }
 }
 
+.pixel-font {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  letter-spacing: 0.05em;
+}
+
 @layer components {
   /**
    * Custom container utility that centers content and adds responsive padding.
